@@ -1,5 +1,4 @@
 import subprocess
-from datetime import datetime, timezone
 from json import loads
 from pathlib import Path
 from typing import List, Optional, Union
@@ -9,37 +8,16 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from redis.exceptions import RedisError
 
-from heating_web.contract import (ACTIVE, CONTROL_VALUE, SERVICE_NAME, SHADOW, STALE_AFTER, TIME_FORMAT,
-                                  VERSIONS_PREFIX)
+from heating_web.contract import SERVICE_NAME, VERSIONS_PREFIX
 from heating_web.gpio import GPIO_ROOT, SysfsReader
 from heating_web.io_state import IoView, utc_now
 from heating_web.journal import JournalError, read_journal
+from heating_web.live_state import ZoneLive, read_zone
 
 SERVICES = ("boiler_relay", "boiler_relay_v2", "boiler_relay_v2_shadow", "mqtt_bridge")
 SYSTEMCTL_TIMEOUT = 5
 MAX_LOG_LINES = 500
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
-
-
-class Reading(BaseModel):
-    value: float
-    time: str
-    age_seconds: Optional[float]
-
-
-class ZoneLive(BaseModel):
-    name: str
-    system: str
-    sensor_path: str
-    current_temperature: Optional[Reading]
-    sensor_stale: bool
-    target_temperature: Optional[float]
-    target_state: Optional[int]
-    control_value: Optional[float]
-    heating_cooling_state: Optional[int]
-    boost: Optional[bool]
-    active: Optional[dict]
-    shadow: Optional[dict]
 
 
 class LogEntry(BaseModel):
@@ -114,59 +92,14 @@ def unit_state(name):
     return result.stdout.strip() or "unknown"
 
 
-def age_of(sample_time):
-    try:
-        reported = datetime.strptime(sample_time, TIME_FORMAT).replace(tzinfo=timezone.utc)
-    except (TypeError, ValueError):
-        return None
-    return max(0.0, (datetime.now(timezone.utc) - reported).total_seconds())
-
-
 def create_app(zones, redis, own_version, unit_state=unit_state, read_journal=read_journal, web_dir=WEB_DIR,
                boiler=None, gpio_root=GPIO_ROOT, clock=utc_now):
     app = FastAPI(title="heating_web")
     io_view = IoView(zones, boiler, SysfsReader(gpio_root), clock)
 
-    def read_json(key):
-        message = redis.get(key)
-        return None if message is None else loads(message)
-
-    def read_int(key):
-        message = redis.get(key)
-        try:
-            return None if message is None else int(message)
-        except ValueError:
-            return None
-
-    def read_reading(path):
-        data = read_json(f"{path}/current_temperature")
-        if data is None:
-            return None
-        return Reading(value=data["value"], time=data["time"], age_seconds=age_of(data["time"]))
-
-    def read_zone(zone):
-        path = zone.sensor_path
-        reading = read_reading(path)
-        target = read_json(f"{path}/target_temperature")
-        control = redis.get(f"{path}/{CONTROL_VALUE}")
-        return ZoneLive(
-            name=zone.name,
-            system=zone.system,
-            sensor_path=path,
-            current_temperature=reading,
-            sensor_stale=reading is None or reading.age_seconds is None or reading.age_seconds > STALE_AFTER,
-            target_temperature=None if target is None else target["value"],
-            target_state=read_int(f"{path}/target_heatingcooling_state"),
-            control_value=None if control is None else float(control),
-            heating_cooling_state=read_int(f"{path}/heating_cooling_state"),
-            boost=read_json(f"{path}/boost"),
-            active=read_json(f"heating/{ACTIVE}/zones/{zone.name}"),
-            shadow=read_json(f"heating/{SHADOW}/zones/{zone.name}"),
-        )
-
     @app.get("/api/live", response_model=List[ZoneLive])
     def live():
-        return [read_zone(zone) for zone in zones]
+        return [read_zone(redis, zone) for zone in zones]
 
     @app.get("/api/io", response_model=IoState)
     def io():
