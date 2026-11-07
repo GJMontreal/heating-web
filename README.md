@@ -13,7 +13,7 @@ It is deployed and versioned on its own, apart from the control service in `boil
 | `GET /api/logs?unit=&lines=` | Journal entries for those units. `lines` defaults to 100 and is capped at 500. A failing `journalctl` gives 503 |
 | `GET /api/versions` | `service`, `version`, `commit` and `time` for every `heating/versions/*` key, plus this service's own entry. It answers with only its own entry when redis is down |
 
-The API has no authentication and no write routes.
+The API has no write routes.
 
 ## Running
 

@@ -13,7 +13,7 @@ The web service is a read-only API and the web interface it serves. It reads red
 
 Moved from `boiler-relay/TODO.md`, step 3.
 
-- [x] A read-only FastAPI service on the LAN with no authentication. The versions in `requirements.txt` are pinned for Python 3.7, and the tests pass on 3.7.17. `/api/live`, `/api/services`, `/api/logs` and `/api/versions` exist. History is still open.
+- [x] A read-only FastAPI service on the LAN. The versions in `requirements.txt` are pinned for Python 3.7, and the tests pass on 3.7.17. `/api/live`, `/api/services`, `/api/logs` and `/api/versions` exist. History is still open.
 - [x] Run it from its own unit as `SERVICE_USER` (`heating`), not a new user. The master deploy script adds that user to `systemd-journal`.
 - [ ] Sample redis every 10 seconds into SQLite on the USB drive, keep seven days, and include the legacy keys. Mount the drive by UUID as ext4 with `nofail`. Without the drive, run without history and never write to the eMMC.
 - [ ] Show `mqtt_bridge.service` state and each sensor's age on the Live page. If the bridge dies, every zone calls for no heat after two hours.
