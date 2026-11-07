@@ -2,6 +2,7 @@ import { get } from "./api.js";
 import { report } from "./alert.js";
 import { el, meter, status } from "./dom.js";
 import { ageText, clock, temperature } from "./format.js";
+import { ioCard, relayRow } from "./hydronic_io.js";
 
 const REFRESH_MS = 10000;
 const SHADOW_UNIT = "boiler_relay_v2_shadow";
@@ -20,6 +21,7 @@ let timer = null;
 let loading = false;
 let zones = null;
 let services = null;
+let io = null;
 let onUpdated = null;
 
 function unitStatus(state) {
@@ -114,6 +116,7 @@ function zoneCard(zone) {
     el("dt", { text: "Boost" }), flag(zone.boost),
     el("dt", { text: "Legacy control value" }), legacyCell(zone),
     el("dt", { text: "Shadow decision" }), shadowCell(zone),
+    ...relayRow(io, zone.name),
   ]);
   return el("div", { className: "card zone" }, [head, summary, details]);
 }
@@ -126,6 +129,7 @@ function sections() {
   for (const system of systems) {
     const [title, note] = SYSTEMS[system] || [system, ""];
     nodes.push(el("div", { className: "section-title" }, [el("h2", { text: title }), el("span", { className: "muted", text: note })]));
+    if (system === "hydronic" && io !== null) nodes.push(ioCard(io));
     nodes.push(el("div", { className: "grid" }, zones.filter((zone) => zone.system === system).map(zoneCard)));
   }
   return nodes;
@@ -142,17 +146,20 @@ function render() {
 async function load(onUpdated) {
   if (loading) return;
   loading = true;
-  const [liveResult, servicesResult] = await Promise.all([
+  const [liveResult, servicesResult, ioResult] = await Promise.all([
     get("/api/live").then((data) => ({ data }), (error) => ({ error })),
     get("/api/services").then((data) => ({ data }), (error) => ({ error })),
+    get("/api/io").then((data) => ({ data }), (error) => ({ error })),
   ]);
   loading = false;
   if (root === null) return;
   report("live", liveResult.error || null);
   report("services", servicesResult.error || null);
+  report("io", ioResult.error || null);
   if (liveResult.data) zones = liveResult.data;
   if (servicesResult.data) services = servicesResult.data;
-  if (liveResult.data || servicesResult.data) onUpdated(clock(new Date()));
+  if (ioResult.data) io = ioResult.data;
+  if (liveResult.data || servicesResult.data || ioResult.data) onUpdated(clock(new Date()));
   render();
 }
 
