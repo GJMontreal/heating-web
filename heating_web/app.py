@@ -1,9 +1,11 @@
 import subprocess
 from datetime import datetime, timezone
 from json import loads
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from redis.exceptions import RedisError
 
@@ -14,6 +16,7 @@ from heating_web.journal import JournalError, read_journal
 SERVICES = ("boiler_relay", "boiler_relay_v2", "boiler_relay_v2_shadow", "mqtt_bridge")
 SYSTEMCTL_TIMEOUT = 5
 MAX_LOG_LINES = 500
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
 class Reading(BaseModel):
@@ -74,7 +77,7 @@ def age_of(sample_time):
     return max(0.0, (datetime.now(timezone.utc) - reported).total_seconds())
 
 
-def create_app(zones, redis, own_version, unit_state=unit_state, read_journal=read_journal):
+def create_app(zones, redis, own_version, unit_state=unit_state, read_journal=read_journal, web_dir=WEB_DIR):
     app = FastAPI(title="heating_web")
 
     def read_json(key):
@@ -150,5 +153,7 @@ def create_app(zones, redis, own_version, unit_state=unit_state, read_journal=re
     @app.get("/api/versions", response_model=List[VersionEntry])
     def versions():
         return read_versions()
+
+    app.mount("/", StaticFiles(directory=str(web_dir), html=True), name="web")
 
     return app

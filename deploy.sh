@@ -35,9 +35,10 @@ done
 STAGE=$(mktemp -d)
 trap 'rm -rf "${STAGE}"' EXIT
 
-mkdir -p "${STAGE}/heating_web" "${STAGE}/deploy"
+mkdir -p "${STAGE}/heating_web" "${STAGE}/deploy" "${STAGE}/web"
 cp requirements.txt "${STAGE}/"
 cp heating_web/*.py "${STAGE}/heating_web/"
+cp -R web/. "${STAGE}/web/"
 cp deploy/setup_python.sh "deploy/${SERVICE_NAME}.service" "${STAGE}/deploy/"
 chmod -R u=rwX,go=rX "${STAGE}"
 
