@@ -7,19 +7,10 @@ from fastapi.testclient import TestClient
 from heating_web import journal
 from heating_web.app import MAX_LOG_LINES, SERVICES, create_app
 from heating_web.journal import JournalError, parse_entry, read_journal
-from boiler_relay.config import SystemConfig
+from heating_web.zones import Zone
 
-CONFIG = {
-  "redis": {"host": "localhost", "port": 6379},
-  "boiler": {"output_gpio": "P8_18"},
-  "zones": [{
-    "sensor_path": "/home/sensors/a",
-    "name": "Bedrooms",
-    "system": "hydronic",
-    "outputs": [{"type": "gpio", "pin": "P8_10", "end_switch": "P8_9"}],
-    "pid_interval": 10,
-  }],
-}
+SENSOR = "/home/sensors/a"
+ZONES = [Zone("Bedrooms", SENSOR, "hydronic")]
 
 
 def line(**fields):
@@ -115,7 +106,7 @@ def client(redis_client, requests_seen):
     requests_seen.append((units, lines))
     return [{"time": "2025-11-07T12:53:20Z", "unit": units[0], "priority": 6, "message": "hello"}]
 
-  return TestClient(create_app(SystemConfig.from_dict(CONFIG), redis_client, read_journal=fake))
+  return TestClient(create_app(ZONES, redis_client, read_journal=fake))
 
 
 def test_logs_defaults_to_every_service_and_a_hundred_lines(client, requests_seen):
@@ -142,7 +133,7 @@ def test_logs_reports_an_unavailable_journal_as_503(redis_client):
   def broken(units, lines):
     raise JournalError("no access")
 
-  client = TestClient(create_app(SystemConfig.from_dict(CONFIG), redis_client, read_journal=broken))
+  client = TestClient(create_app(ZONES, redis_client, read_journal=broken))
 
   response = client.get("/api/logs")
 

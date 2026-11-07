@@ -2,7 +2,7 @@ import subprocess
 from datetime import datetime, timezone
 from json import loads
 
-from boiler_relay.state_publisher import TIME_FORMAT
+from heating_web.contract import TIME_FORMAT
 
 JOURNAL_TIMEOUT = 10
 SUFFIX = ".service"

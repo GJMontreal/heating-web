@@ -6,9 +6,8 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
+from heating_web.contract import ACTIVE, CONTROL_VALUE, SHADOW, STALE_AFTER, TIME_FORMAT
 from heating_web.journal import JournalError, read_journal
-from boiler_relay.state_publisher import ACTIVE, SHADOW, TIME_FORMAT
-from boiler_relay.zone import STALE_AFTER
 
 SERVICES = ("boiler_relay", "boiler_relay_v2", "boiler_relay_v2_shadow", "mqtt_bridge")
 SYSTEMCTL_TIMEOUT = 5
@@ -65,8 +64,8 @@ def age_of(sample_time):
     return max(0.0, (datetime.now(timezone.utc) - reported).total_seconds())
 
 
-def create_app(system, redis, unit_state=unit_state, read_journal=read_journal):
-    app = FastAPI(title="boiler_relay")
+def create_app(zones, redis, unit_state=unit_state, read_journal=read_journal):
+    app = FastAPI(title="heating_web")
 
     def read_json(key):
         message = redis.get(key)
@@ -89,7 +88,7 @@ def create_app(system, redis, unit_state=unit_state, read_journal=read_journal):
         path = zone.sensor_path
         reading = read_reading(path)
         target = read_json(f"{path}/target_temperature")
-        control = redis.get(zone.control_path)
+        control = redis.get(f"{path}/{CONTROL_VALUE}")
         return ZoneLive(
             name=zone.name,
             sensor_path=path,
@@ -106,7 +105,7 @@ def create_app(system, redis, unit_state=unit_state, read_journal=read_journal):
 
     @app.get("/api/live", response_model=List[ZoneLive])
     def live():
-        return [read_zone(zone) for zone in system.zones]
+        return [read_zone(zone) for zone in zones]
 
     @app.get("/api/services", response_model=List[ServiceState])
     def services():

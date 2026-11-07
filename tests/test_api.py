@@ -5,20 +5,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from heating_web.app import SERVICES, create_app
-from boiler_relay.config import SystemConfig
+from heating_web.zones import Zone
 
 SENSOR = "/home/sensors/a"
-CONFIG = {
-  "redis": {"host": "localhost", "port": 6379},
-  "boiler": {"output_gpio": "P8_18"},
-  "zones": [{
-    "sensor_path": SENSOR,
-    "name": "Bedrooms",
-    "system": "hydronic",
-    "outputs": [{"type": "gpio", "pin": "P8_10", "end_switch": "P8_9"}],
-    "pid_interval": 10,
-  }],
-}
+ZONES = [Zone("Bedrooms", SENSOR, "hydronic")]
 
 
 def timestamp(age=0):
@@ -33,8 +23,7 @@ def states():
 
 @pytest.fixture
 def client(redis_client, states):
-  system = SystemConfig.from_dict(CONFIG)
-  app = create_app(system, redis_client, unit_state=lambda name: states.get(name, "inactive"))
+  app = create_app(ZONES, redis_client, unit_state=lambda name: states.get(name, "inactive"))
   return TestClient(app)
 
 
