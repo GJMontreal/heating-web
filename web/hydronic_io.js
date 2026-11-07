@@ -1,4 +1,4 @@
-import { el, status } from "./dom.js";
+import { el, indicator, status } from "./dom.js";
 
 const STUCK_AFTER_SECONDS = 360;
 const STUCK_AFTER_MINUTES = STUCK_AFTER_SECONDS / 60;
@@ -6,7 +6,7 @@ const HYDRONIC = "hydronic";
 const VALVE_STATES = {
   open: ["good", "●", "Open"],
   opening: ["", "◐", "Opening"],
-  closing: ["", "◑", "Closing"],
+  closing: ["", "◐", "Closing"],
   closed: ["", "○", "Closed"],
 };
 const TRANSITIONS = ["opening", "closing"];
@@ -36,60 +36,60 @@ export function changedAgo(now, ...sinces) {
   return seconds(latest, now);
 }
 
-function levelText(entry) {
-  return entry.exported ? String(entry.level) : "–";
-}
-
-function heldFor(now, entry) {
-  const elapsed = entry.since === null ? null : seconds(entry.since, now);
-  return elapsed === null ? "" : ` for ${duration(elapsed)}`;
-}
-
-function hover(entry, text, now) {
-  return `level ${levelText(entry)}, ${text}${heldFor(now, entry)}`;
-}
-
 function signalCells(name, pin) {
   return [el("td", { text: name }), el("td", { className: "pin", text: pin })];
 }
 
-function notReadable() {
-  return el("td", { className: "muted", text: "Not readable", title: "pin not exported or not readable" });
+function polarity(entry) {
+  if (entry.level === null) return null;
+  return entry.active === (entry.level === 0) ? "active low" : "active high";
+}
+
+function pinTitle(entry, extra = "") {
+  return `${entry.level}, ${polarity(entry)}${extra}`;
 }
 
 function stateCell(kind, glyph, label, title) {
-  return el("td", { title }, [status(kind, glyph, label)]);
+  return el("td", { title }, [indicator(kind, glyph, label)]);
 }
 
-function valveStateCell(state, elapsed, title) {
-  if (state === null) return stateCell("", "?", "Unknown", title);
+function unreadableCell() {
+  return stateCell("warn", "⚠", "Not readable", "not readable");
+}
+
+function valveStateCell(state, elapsed, output, end) {
+  if (state === null) {
+    const extra = end !== undefined && end.high === null ? ", end switch not readable" : "";
+    return stateCell("warn", "⚠", "Unknown", pinTitle(output, extra));
+  }
   const [kind, glyph, label] = VALVE_STATES[state];
   if (TRANSITIONS.includes(state) && elapsed !== null && elapsed > STUCK_AFTER_SECONDS) {
-    return stateCell("warn", "⚠", `${label} for ${duration(elapsed)}, over ${STUCK_AFTER_MINUTES} min`, title);
+    const held = duration(elapsed);
+    return stateCell("warn", "⚠", `${label} for ${held}, over ${STUCK_AFTER_MINUTES} min`,
+      pinTitle(output, `, ${label.toLowerCase()} for ${held}`));
   }
-  const text = TRANSITIONS.includes(state) && elapsed !== null ? `${label} for ${duration(elapsed)}` : label;
-  return stateCell(kind, glyph, text, title);
+  return stateCell(kind, glyph, label, pinTitle(output));
 }
 
 function boilerRow(boiler) {
-  const state = boiler.on === null ? notReadable()
-    : stateCell(boiler.on ? "good" : "", boiler.on ? "●" : "○", boiler.on ? "On" : "Off", `level ${levelText(boiler)}`);
-  return el("tr", {}, [...signalCells("Boiler", boiler.pin), state]);
+  let cell = unreadableCell();
+  if (boiler.on !== null) {
+    cell = stateCell(boiler.on ? "good" : "", boiler.on ? "●" : "○", boiler.on ? "On" : "Off", pinTitle(boiler));
+  }
+  return el("tr", {}, [...signalCells("Boiler", boiler.pin), cell]);
 }
 
 function valveRow(zone, output, end, suffix, now) {
-  const driven = output.active === null ? "not readable" : output.active ? "driven open" : "driven closed";
-  const title = hover(output, driven, now);
   const state = valveState(output, end);
   const elapsed = state === null || end === undefined ? null : changedAgo(now, output.since, end.since);
-  const cell = output.active === null ? notReadable() : valveStateCell(state, elapsed, title);
+  const cell = output.active === null ? unreadableCell() : valveStateCell(state, elapsed, output, end);
   return el("tr", {}, [...signalCells(`${zone.name} valve${suffix}`, output.pin), cell]);
 }
 
-function endSwitchRow(zone, end, suffix, now) {
-  let cell = notReadable();
+function endSwitchRow(zone, end, suffix) {
+  let cell = unreadableCell();
   if (end.high !== null) {
-    const title = hover(end, end.high ? "high, valve open" : "low, valve not open", now);
+    const title = `${end.level}, active high`;
     cell = end.high ? stateCell("good", "●", "Open", title) : stateCell("", "○", "Closed", title);
   }
   return el("tr", {}, [...signalCells(`${zone.name} end switch${suffix}`, end.pin), cell]);
@@ -102,7 +102,7 @@ function zoneRows(zone, now) {
     const suffix = many ? ` ${index + 1}` : "";
     const end = zone.end_switches.find((entry) => entry.pin === output.end_switch);
     rows.push(valveRow(zone, output, end, suffix, now));
-    if (end !== undefined) rows.push(endSwitchRow(zone, end, suffix, now));
+    if (end !== undefined) rows.push(endSwitchRow(zone, end, suffix));
   });
   return rows;
 }
@@ -116,7 +116,6 @@ export function ioCard(io) {
   const head = el("tr", {}, ["Signal", "Pin", "State"].map((text) => el("th", { text })));
   return el("div", { className: "card io" }, [
     el("h3", { text: "Hydronic I/O" }),
-    el("div", { className: "muted note", text: "Physical pin levels read from the BeagleBone. The pin, not the control value, says what the valve and the boiler are doing. Hover a state for the pin level." }),
     el("table", {}, [el("thead", {}, [head]), el("tbody", {}, rows)]),
   ]);
 }

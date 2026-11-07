@@ -13,6 +13,11 @@ export function status(kind, glyph, label) {
   return el("span", { className: `status ${kind}` }, [mark, label]);
 }
 
+export function indicator(kind, glyph, label) {
+  const mark = el("span", { className: "glyph", text: glyph, attrs: { "aria-hidden": "true" } });
+  return el("span", { className: `status ${kind}` }, [mark, el("span", { className: "sr-only", text: label })]);
+}
+
 export function meter(value, extraClass = "") {
   const fill = document.createElement("i");
   fill.style.width = `${Math.max(0, Math.min(1, value)) * 100}%`;
