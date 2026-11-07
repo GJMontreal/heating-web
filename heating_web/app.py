@@ -89,6 +89,13 @@ class SeriesZone(BaseModel):
     sh_ctl: List[Optional[float]]
     hc: List[Optional[float]]
     sh_state: List[Optional[float]]
+    out: List[Optional[float]]
+    sw: List[Optional[float]]
+
+
+class BoilerSeries(BaseModel):
+    t: List[int]
+    on: List[Optional[float]]
 
 
 class HistoryState(BaseModel):
@@ -96,6 +103,7 @@ class HistoryState(BaseModel):
     end: int
     bucket_seconds: int
     zones: List[SeriesZone]
+    boiler: BoilerSeries
 
 
 class WindowColumns(BaseModel):
@@ -107,6 +115,14 @@ class WindowColumns(BaseModel):
     sh_ctl: List[Optional[float]]
     on_fraction: List[Optional[float]]
     sh_on_fraction: List[Optional[float]]
+    out_fraction: List[Optional[float]]
+    sw_fraction: List[Optional[float]]
+
+
+class BoilerWindows(BaseModel):
+    start: List[int]
+    n: List[int]
+    on_fraction: List[Optional[float]]
 
 
 class WindowSummary(BaseModel):
@@ -129,6 +145,7 @@ class CompareState(BaseModel):
     start: int
     end: int
     zones: List[CompareZone]
+    boiler: BoilerWindows
 
 
 class ServiceState(BaseModel):

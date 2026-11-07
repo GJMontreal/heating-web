@@ -299,3 +299,62 @@ def test_reading_leaves_the_database_and_its_log_unchanged(client, root, history
 def test_the_routes_accept_only_get(client):
   assert client.post("/api/history").status_code == 405
   assert client.post("/api/compare").status_code == 405
+
+
+def test_history_returns_the_valve_and_end_switch_columns_with_nulls_for_old_rows(client, history):
+  fill(history, NOW - 100, 3, ctl=0.4, out=lambda i: [None, 1.0, 0.5][i], sw=lambda i: [None, 0.0, 0.3333333][i])
+
+  zone = by_name(history_of(client, hours=1))["Bedrooms"]
+
+  assert zone["out"] == [None, 1.0, 0.5]
+  assert zone["sw"] == [None, 0.0, 0.333]
+
+
+def test_history_returns_the_boiler_series(client, history):
+  for index in range(3):
+    history.add_boiler(NOW - 100 + index * 10, [1, 0, None][index])
+  history.commit()
+
+  data = history_of(client, hours=1)
+
+  assert data["boiler"] == {"t": [NOW - 100, NOW - 90, NOW - 80], "on": [1.0, 0.0, None]}
+
+
+def test_a_downsampled_boiler_series_is_the_on_fraction_per_bucket(client, history):
+  for index in range(2160):
+    history.add_boiler(NOW - 6 * 3600 + index * 10, 1 if index % 4 == 0 else 0)
+  history.commit()
+
+  data = history_of(client, hours=6, points=100)
+
+  assert 90 <= len(data["boiler"]["t"]) <= 101
+  assert all(0.2 <= value <= 0.3 for value in data["boiler"]["on"][1:-1])
+
+
+def test_compare_returns_the_pin_window_means_and_the_boiler_windows(client, history):
+  start = NOW - 2 * WINDOW_SECONDS - 125
+  make_window(history, start, 60, on=0, out=0.5, sw=0.25)
+  for index in range(60):
+    history.add_boiler(start + index * 10, 1 if index < 15 else 0)
+  history.aggregate(NOW)
+  history.commit()
+
+  data = compare_of(client)
+
+  zone = by_name(data)["Bedrooms"]
+  assert zone["windows"]["out_fraction"] == [0.5]
+  assert zone["windows"]["sw_fraction"] == [0.25]
+  assert data["boiler"]["n"] == [60]
+  assert data["boiler"]["on_fraction"] == [0.25]
+
+
+def test_windows_from_before_the_migration_have_null_pin_means(client, history):
+  start = NOW - 2 * WINDOW_SECONDS - 125
+  make_window(history, start, 60, on=0)
+  history.aggregate(NOW)
+  history.commit()
+
+  zone = by_name(compare_of(client))["Bedrooms"]
+
+  assert zone["windows"]["out_fraction"] == [None]
+  assert zone["windows"]["sw_fraction"] == [None]

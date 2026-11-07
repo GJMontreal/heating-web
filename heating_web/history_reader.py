@@ -11,20 +11,28 @@ FRACTION_DIGITS = 3
 MAX_HOURS = 168
 MAX_WINDOW_HOURS = 336
 RAW_INTERVAL = 10
-SERIES_COLUMNS = ("temp", "target", "ctl", "sh_ctl", "hc", "sh_state")
-WINDOW_COLUMNS = ("n", "temp", "target", "ctl", "sh_ctl", "on_fraction", "sh_on_fraction")
+SERIES_COLUMNS = ("temp", "target", "ctl", "sh_ctl", "hc", "sh_state", "out", "sw")
+WINDOW_COLUMNS = ("n", "temp", "target", "ctl", "sh_ctl", "on_fraction", "sh_on_fraction", "out_fraction", "sw_fraction")
 ROUNDING = {"temp": TEMPERATURE_DIGITS, "target": TEMPERATURE_DIGITS}
 LEGACY_COLUMNS = ("ctl", "hc")
 LEGACY_WINDOW_COLUMNS = ("ctl", "on_fraction")
 SUMMARY_COLUMNS = ("ctl", "sh_ctl", "on_fraction", "sh_on_fraction")
 
 SERIES_SQL = (
-    "SELECT (ts / :bucket) * :bucket AS t, avg(temp), avg(target), avg(ctl), avg(sh_ctl), avg(hc), avg(sh_state)"
+    "SELECT (ts / :bucket) * :bucket AS t, avg(temp), avg(target), avg(ctl), avg(sh_ctl), avg(hc), avg(sh_state),"
+    " avg(out), avg(sw)"
     " FROM samples WHERE zone = :zone AND ts >= :begin AND ts < :end GROUP BY t ORDER BY t"
 )
 WINDOWS_SQL = (
-    "SELECT start, n, temp, target, ctl, sh_ctl, on_fraction, sh_on_fraction"
+    "SELECT start, n, temp, target, ctl, sh_ctl, on_fraction, sh_on_fraction, out_fraction, sw_fraction"
     " FROM windows WHERE zone = :zone AND start >= :begin AND start < :end ORDER BY start"
+)
+BOILER_SQL = (
+    "SELECT (ts / :bucket) * :bucket AS t, avg(state) FROM boiler"
+    " WHERE ts >= :begin AND ts < :end GROUP BY t ORDER BY t"
+)
+BOILER_WINDOWS_SQL = (
+    "SELECT start, n, on_fraction FROM boiler_windows WHERE start >= :begin AND start < :end ORDER BY start"
 )
 
 
@@ -96,9 +104,11 @@ class HistoryReader:
                 result.append({"name": zone.name, "system": zone.system,
                                "legacy_available": any_present(values, LEGACY_COLUMNS),
                                "t": [row[0] for row in rows], **values})
-            return result
+            boiler = connection.execute(BOILER_SQL, {"bucket": bucket, "begin": begin, "end": end}).fetchall()
+            return {"zones": result, "boiler": {"t": [row[0] for row in boiler],
+                                                "on": [rounded("on", row[1]) for row in boiler]}}
 
-        return {"start": begin, "end": end, "bucket_seconds": bucket, "zones": self.query(work)}
+        return {"start": begin, "end": end, "bucket_seconds": bucket, **self.query(work)}
 
     def windows(self, zones, hours):
         end = int(self.epoch())
@@ -117,6 +127,8 @@ class HistoryReader:
                     "windows": {"start": [row[0] for row in rows], **values},
                     "summary": {"windows": len(rows), **{name: mean(values[name]) for name in SUMMARY_COLUMNS}},
                 })
-            return result
+            boiler = connection.execute(BOILER_WINDOWS_SQL, {"begin": begin, "end": end}).fetchall()
+            return {"zones": result, "boiler": {"start": [row[0] for row in boiler], "n": [row[1] for row in boiler],
+                                                "on_fraction": [rounded("on_fraction", row[2]) for row in boiler]}}
 
-        return {"start": begin, "end": end, "zones": self.query(work)}
+        return {"start": begin, "end": end, **self.query(work)}
