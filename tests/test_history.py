@@ -143,3 +143,94 @@ def test_reopening_keeps_the_data_and_the_zone_ids(tmp_path):
   check = sqlite3.connect(path)
   assert check.execute("SELECT count(*), count(DISTINCT zone) FROM samples").fetchone() == (2, 1)
   check.close()
+
+
+OLD_SCHEMA = (
+  "CREATE TABLE zones (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)",
+  "CREATE TABLE samples (zone INTEGER NOT NULL, ts INTEGER NOT NULL, temp REAL, target REAL, mode INTEGER,"
+  " ctl REAL, hc INTEGER, boost INTEGER, sh_ctl REAL, sh_state INTEGER, PRIMARY KEY (zone, ts)) WITHOUT ROWID",
+  "CREATE TABLE windows (zone INTEGER NOT NULL, start INTEGER NOT NULL, n INTEGER NOT NULL, temp REAL, target REAL,"
+  " ctl REAL, sh_ctl REAL, on_fraction REAL, sh_on_fraction REAL, PRIMARY KEY (zone, start)) WITHOUT ROWID",
+)
+
+
+@pytest.fixture
+def old_database(tmp_path):
+  path = str(tmp_path / "old.sqlite3")
+  connection = sqlite3.connect(path)
+  connection.execute("PRAGMA journal_mode=WAL")
+  for statement in OLD_SCHEMA:
+    connection.execute(statement)
+  connection.execute("INSERT INTO zones (name) VALUES ('Bedrooms')")
+  for index in range(3):
+    connection.execute("INSERT INTO samples (zone, ts, temp, ctl, hc) VALUES (1, ?, 19.5, 0.4, 1)", (NOW - 100 + index * 10,))
+  connection.execute("INSERT INTO windows (zone, start, n, temp, ctl) VALUES (1, ?, 60, 19.0, 0.3)", (NOW - 3 * WINDOW_SECONDS,))
+  connection.commit()
+  connection.close()
+  return path
+
+
+def test_an_old_database_gains_the_pin_columns_and_keeps_its_rows(old_database):
+  migrated = History(old_database)
+
+  assert rows(migrated, "SELECT ts, temp, ctl, hc, out, sw FROM samples ORDER BY ts") == [
+    (NOW - 100, 19.5, 0.4, 1, None, None), (NOW - 90, 19.5, 0.4, 1, None, None), (NOW - 80, 19.5, 0.4, 1, None, None)]
+  assert rows(migrated, "SELECT start, n, temp, ctl, out_fraction, sw_fraction FROM windows") == [
+    (NOW - 3 * WINDOW_SECONDS, 60, 19.0, 0.3, None, None)]
+  assert rows(migrated, "SELECT count(*) FROM boiler") == [(0,)]
+  migrated.close()
+
+
+def test_migrating_twice_changes_nothing(old_database):
+  History(old_database).close()
+  again = History(old_database)
+
+  assert [row[1] for row in rows(again, "PRAGMA table_info(samples)")].count("out") == 1
+  assert rows(again, "SELECT count(*) FROM samples") == [(3,)]
+  again.close()
+
+
+def test_windows_after_a_migration_carry_the_pin_means(old_database):
+  migrated = History(old_database)
+  for index in range(60):
+    migrated.add(NOW - WINDOW_SECONDS + index * 10, "Bedrooms", ctl=0.5, out=1.0 if index < 30 else 0.0,
+                 sw=1.0 if index < 15 else 0.0)
+
+  migrated.aggregate(NOW)
+
+  row = rows(migrated, "SELECT out_fraction, sw_fraction FROM windows ORDER BY start DESC LIMIT 1")
+  assert row == [(0.5, 0.25)]
+  migrated.close()
+
+
+def test_a_pin_value_of_zero_is_stored_not_dropped(history):
+  history.add(NOW, "Kitchen", out=0.0, sw=0.0)
+
+  assert rows(history, "SELECT out, sw FROM samples") == [(0.0, 0.0)]
+
+
+def test_boiler_states_become_window_means(history):
+  for index in range(60):
+    history.add_boiler(NOW - WINDOW_SECONDS + index * 10, 1 if index < 15 else 0)
+
+  history.aggregate(NOW)
+
+  assert rows(history, "SELECT n, on_fraction FROM boiler_windows") == [(60, 0.25)]
+
+
+def test_an_unreadable_boiler_is_stored_as_null(history):
+  history.add_boiler(NOW - 125, None)
+
+  assert rows(history, "SELECT state FROM boiler") == [(None,)]
+
+
+def test_boiler_rows_expire_with_the_raw_samples(history):
+  history.add_boiler(NOW - RAW_RETENTION - 10, 1)
+  history.add_boiler(NOW - 10, 1)
+  history.connection.execute("INSERT INTO boiler_windows (start, n) VALUES (?, 1)", (NOW - WINDOW_RETENTION - 10,))
+  history.connection.execute("INSERT INTO boiler_windows (start, n) VALUES (?, 1)", (NOW - 10,))
+
+  history.prune(NOW)
+
+  assert [row[0] for row in rows(history, "SELECT ts FROM boiler")] == [NOW - 10]
+  assert [row[0] for row in rows(history, "SELECT start FROM boiler_windows")] == [NOW - 10]

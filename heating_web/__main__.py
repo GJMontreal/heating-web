@@ -49,7 +49,7 @@ def main(argv=None):
     redis = Redis(host=args.redis_host, port=args.redis_port, db=0)
     entry = build_entry()
     announce(redis, entry)
-    sampler = Sampler(redis, config.zones, root=args.history_root)
+    sampler = Sampler(redis, config.zones, root=args.history_root, boiler=config.boiler, gpio_root=args.gpio_root)
     sampler.start()
     try:
         uvicorn.run(create_app(config.zones, redis, entry, boiler=config.boiler, gpio_root=args.gpio_root,

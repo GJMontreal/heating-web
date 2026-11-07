@@ -6,7 +6,9 @@ from threading import Event, Thread
 
 from redis.exceptions import RedisError
 
+from heating_web.gpio import GPIO_ROOT, SysfsReader
 from heating_web.history import DATABASE, History
+from heating_web.io_state import IoView
 from heating_web.live_state import age_of, read_zone
 
 log = logging.getLogger(__name__)
@@ -41,11 +43,27 @@ def sample_values(zone):
     }
 
 
+def fraction(values):
+    if not values or any(value is None for value in values):
+        return None
+    return sum(1 for value in values if value) / len(values)
+
+
+def pin_values(entry):
+    if entry is None or entry["outputs"] is None:
+        return {"out": None, "sw": None}
+    outputs = [item["active"] for item in entry["outputs"] if "pin" in item]
+    switches = [item["high"] for item in entry["end_switches"] or []]
+    return {"out": fraction(outputs), "sw": fraction(switches)}
+
+
 class Sampler:
     def __init__(self, redis, zones, root=HISTORY_ROOT, is_mounted=os.path.ismount, clock=time.time,
-                 interval=SAMPLE_INTERVAL):
+                 interval=SAMPLE_INTERVAL, boiler=None, gpio_root=GPIO_ROOT):
         self.redis = redis
         self.zones = zones
+        self.boiler = boiler
+        self.io = IoView(zones, boiler, SysfsReader(gpio_root))
         self.root = root
         self.is_mounted = is_mounted
         self.clock = clock
@@ -94,8 +112,13 @@ class Sampler:
             self.warn_once("redis", "history skipped a sample, redis failed: %s", error)
             return
         self.recovered("redis")
+        pins = self.io.snapshot()
+        entries = {entry["name"]: entry for entry in pins["zones"]}
         for name, values in rows:
-            self.history.add(now, name, **values)
+            self.history.add(now, name, **values, **pin_values(entries.get(name)))
+        if pins["boiler"] is not None:
+            on = pins["boiler"]["on"]
+            self.history.add_boiler(now, None if on is None else int(on))
 
     def commit_if_due(self):
         now = self.clock()

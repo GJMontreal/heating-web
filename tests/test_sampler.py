@@ -7,7 +7,8 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 
 from heating_web.history import DATABASE
 from heating_web.sampler import COMMIT_INTERVAL, DATA_FOLDER, SAMPLE_INTERVAL, Sampler
-from heating_web.zones import Zone
+from heating_web.gpio import PIN_NUMBERS
+from heating_web.zones import Boiler, Output, Zone
 
 SENSOR = "/home/sensors/a"
 ZONES = [Zone("Bedrooms", SENSOR, "hydronic")]
@@ -269,3 +270,138 @@ def test_nothing_is_written_outside_the_data_folder(sampler, redis_client, root,
   sampler.release()
 
   assert {path.split("/")[0] for path in tree(root)} == {DATA_FOLDER}
+
+
+KITCHEN = Zone("Kitchen", "/home/sensors/k", "hydronic", [Output("gpio", "P8_16", "P8_7")], True)
+BEDROOMS = Zone("Bedrooms", "/home/sensors/b", "hydronic",
+                [Output("gpio", "P8_10", "P8_9"), Output("gpio", "P8_14", "P8_17")], True)
+STAIRWELL = Zone("Stairwell", "/home/sensors/s", "electric", [Output("MQTTRelay", None, None)], False)
+
+
+@pytest.fixture
+def gpio(tmp_path):
+  root = tmp_path / "sysfs"
+  root.mkdir()
+  return root
+
+
+def setpin(gpio, pin, level):
+  directory = gpio / f"gpio{PIN_NUMBERS[pin]}"
+  directory.mkdir(exist_ok=True)
+  (directory / "value").write_text(f"{level}\n")
+
+
+def pin_sampler(redis_client, root, clock, gpio, zones, boiler=Boiler("P8_18", True)):
+  return Sampler(redis_client, zones, root=str(root), is_mounted=lambda path: True, clock=clock,
+                 boiler=boiler, gpio_root=str(gpio))
+
+
+def pin_rows(root):
+  return stored(root, "SELECT zones.name, samples.out, samples.sw FROM samples JOIN zones ON zones.id = samples.zone ORDER BY zones.name")
+
+
+def run_once(sampler, clock):
+  sampler.cycle()
+  clock.advance(COMMIT_INTERVAL)
+  sampler.cycle()
+  sampler.release()
+
+
+def test_a_valve_and_its_end_switch_are_stored_as_open_or_closed(redis_client, root, clock, gpio):
+  setpin(gpio, "P8_16", 0)
+  setpin(gpio, "P8_7", 1)
+
+  run_once(pin_sampler(redis_client, root, clock, gpio, [KITCHEN]), clock)
+
+  assert pin_rows(root)[0] == ("Kitchen", 1.0, 1.0)
+
+
+def test_a_closed_valve_stores_zero_not_null(redis_client, root, clock, gpio):
+  setpin(gpio, "P8_16", 1)
+  setpin(gpio, "P8_7", 0)
+
+  run_once(pin_sampler(redis_client, root, clock, gpio, [KITCHEN]), clock)
+
+  assert pin_rows(root)[0] == ("Kitchen", 0.0, 0.0)
+
+
+def test_a_zone_with_two_valves_stores_the_fraction_open(redis_client, root, clock, gpio):
+  setpin(gpio, "P8_10", 0)
+  setpin(gpio, "P8_14", 1)
+  setpin(gpio, "P8_9", 1)
+  setpin(gpio, "P8_17", 0)
+
+  run_once(pin_sampler(redis_client, root, clock, gpio, [BEDROOMS]), clock)
+
+  assert pin_rows(root)[0] == ("Bedrooms", 0.5, 0.5)
+
+
+def test_an_unreadable_pin_stores_null_for_that_value_only(redis_client, root, clock, gpio):
+  setpin(gpio, "P8_16", 0)
+
+  run_once(pin_sampler(redis_client, root, clock, gpio, [KITCHEN]), clock)
+
+  assert pin_rows(root)[0] == ("Kitchen", 1.0, None)
+
+
+def test_the_electric_zone_has_no_pin_values(redis_client, root, clock, gpio):
+  run_once(pin_sampler(redis_client, root, clock, gpio, [STAIRWELL]), clock)
+
+  assert pin_rows(root)[0] == ("Stairwell", None, None)
+
+
+def test_the_boiler_is_stored_once_per_cycle_as_on_or_off(redis_client, root, clock, gpio):
+  setpin(gpio, "P8_18", 0)
+  sampler = pin_sampler(redis_client, root, clock, gpio, [KITCHEN, BEDROOMS])
+
+  sampler.cycle()
+  setpin(gpio, "P8_18", 1)
+  clock.advance(COMMIT_INTERVAL)
+  sampler.cycle()
+  sampler.release()
+
+  assert stored(root, "SELECT state FROM boiler ORDER BY ts") == [(1,), (0,)]
+
+
+def test_an_unreadable_boiler_pin_is_stored_as_null(redis_client, root, clock, gpio):
+  run_once(pin_sampler(redis_client, root, clock, gpio, [KITCHEN]), clock)
+
+  assert stored(root, "SELECT state FROM boiler") == [(None,), (None,)]
+
+
+def test_no_boiler_section_stores_no_boiler_rows(redis_client, root, clock, gpio):
+  run_once(pin_sampler(redis_client, root, clock, gpio, [KITCHEN], boiler=None), clock)
+
+  assert stored(root, "SELECT count(*) FROM boiler") == [(0,)]
+
+
+def test_sampling_leaves_the_pin_files_untouched(redis_client, root, clock, gpio):
+  setpin(gpio, "P8_16", 0)
+  setpin(gpio, "P8_7", 1)
+  setpin(gpio, "P8_18", 0)
+  before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in gpio.rglob("value")}
+  listing = sorted(str(path) for path in gpio.rglob("*"))
+
+  run_once(pin_sampler(redis_client, root, clock, gpio, [KITCHEN]), clock)
+
+  assert {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in gpio.rglob("value")} == before
+  assert sorted(str(path) for path in gpio.rglob("*")) == listing
+
+
+def test_an_existing_database_is_migrated_when_the_sampler_opens_it(redis_client, root, clock, gpio):
+  connection = sqlite3.connect(str(root / DATA_FOLDER / DATABASE))
+  connection.execute("CREATE TABLE zones (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)")
+  connection.execute("CREATE TABLE samples (zone INTEGER NOT NULL, ts INTEGER NOT NULL, temp REAL, target REAL,"
+                     " mode INTEGER, ctl REAL, hc INTEGER, boost INTEGER, sh_ctl REAL, sh_state INTEGER,"
+                     " PRIMARY KEY (zone, ts)) WITHOUT ROWID")
+  connection.execute("INSERT INTO zones (name) VALUES ('Kitchen')")
+  connection.execute("INSERT INTO samples (zone, ts, ctl) VALUES (1, 1000, 0.4)")
+  connection.commit()
+  connection.close()
+  setpin(gpio, "P8_16", 0)
+  setpin(gpio, "P8_7", 1)
+
+  run_once(pin_sampler(redis_client, root, clock, gpio, [KITCHEN]), clock)
+
+  assert stored(root, "SELECT ts, ctl, out, sw FROM samples ORDER BY ts")[0] == (1000, 0.4, None, None)
+  assert stored(root, "SELECT out, sw FROM samples ORDER BY ts")[-1] == (1.0, 1.0)
