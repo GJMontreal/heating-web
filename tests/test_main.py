@@ -31,14 +31,16 @@ def test_the_defaults():
   assert args.port == 8080
   assert args.zones == "/var/lib/boiler_relay_v2/config/system_config.json"
   assert (args.redis_host, args.redis_port) == ("localhost", 6379)
+  assert args.gpio_root == "/sys/class/gpio"
 
 
 def test_the_flags_override_the_defaults():
   args = entry.parse_arguments(["--host", "0.0.0.0", "--port", "9000", "--zones", "z.json",
-                                "--redis-host", "r", "--redis-port", "6380"])
+                                "--redis-host", "r", "--redis-port", "6380", "--gpio-root", "/tmp/g"])
 
   assert (args.host, args.port, args.zones) == ("0.0.0.0", 9000, "z.json")
   assert (args.redis_host, args.redis_port) == ("r", 6380)
+  assert args.gpio_root == "/tmp/g"
 
 
 def test_the_version_flag_prints_and_exits_zero(capsys):
@@ -85,3 +87,23 @@ def test_main_runs_without_the_version_key_when_redis_is_down(zones_file, served
   assert code == 0
   assert len(served) == 1
   assert "could not publish the version" in caplog.text
+
+
+def test_main_reads_the_boiler_and_the_gpio_root_into_the_app(tmp_path, served):
+  from fastapi.testclient import TestClient
+  from heating_web.gpio import PIN_NUMBERS
+
+  config = tmp_path / "system_config.json"
+  config.write_text(json.dumps({
+    "zones": [{"name": "Kitchen", "sensor_path": "/home/sensors/k", "system": "hydronic",
+               "outputs": [{"type": "gpio", "pin": "P8_16", "end_switch": "P8_7"}]}],
+    "boiler": {"output_gpio": "P8_18"},
+  }))
+  root = tmp_path / "gpio"
+  (root / f"gpio{PIN_NUMBERS['P8_18']}").mkdir(parents=True)
+  (root / f"gpio{PIN_NUMBERS['P8_18']}" / "value").write_text("0\n")
+
+  entry.main(["--zones", str(config), "--gpio-root", str(root)])
+
+  boiler = TestClient(served[0][0]).get("/api/io").json()["boiler"]
+  assert (boiler["pin"], boiler["level"], boiler["on"]) == ("P8_18", 0, True)

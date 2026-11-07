@@ -7,6 +7,7 @@ from redis import Redis
 from redis.exceptions import RedisError
 
 from heating_web.app import create_app
+from heating_web.gpio import GPIO_ROOT
 from heating_web.version import build_entry, describe, publish_version
 from heating_web.zones import DEFAULT_ZONES, ZonesError, load_config
 
@@ -18,6 +19,7 @@ def parse_arguments(argv=None):
     parser.add_argument("--host", default="127.0.0.1", help="address to listen on")
     parser.add_argument("--port", type=int, default=8080, help="port to listen on")
     parser.add_argument("--zones", default=DEFAULT_ZONES, help="the control service's system_config.json")
+    parser.add_argument("--gpio-root", default=GPIO_ROOT, help="the sysfs gpio directory, read only")
     parser.add_argument("--redis-host", default="localhost")
     parser.add_argument("--redis-port", type=int, default=6379)
     parser.add_argument("--version", action="version", version=describe())
@@ -44,7 +46,7 @@ def main(argv=None):
     redis = Redis(host=args.redis_host, port=args.redis_port, db=0)
     entry = build_entry()
     announce(redis, entry)
-    uvicorn.run(create_app(config.zones, redis, entry), host=args.host, port=args.port)
+    uvicorn.run(create_app(config.zones, redis, entry, boiler=config.boiler, gpio_root=args.gpio_root), host=args.host, port=args.port)
     return 0
 
 

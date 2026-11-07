@@ -2,7 +2,7 @@ import subprocess
 from datetime import datetime, timezone
 from json import loads
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
@@ -11,6 +11,8 @@ from redis.exceptions import RedisError
 
 from heating_web.contract import (ACTIVE, CONTROL_VALUE, SERVICE_NAME, SHADOW, STALE_AFTER, TIME_FORMAT,
                                   VERSIONS_PREFIX)
+from heating_web.gpio import GPIO_ROOT, SysfsReader
+from heating_web.io_state import IoView, utc_now
 from heating_web.journal import JournalError, read_journal
 
 SERVICES = ("boiler_relay", "boiler_relay_v2", "boiler_relay_v2_shadow", "mqtt_bridge")
@@ -54,6 +56,49 @@ class VersionEntry(BaseModel):
     time: str
 
 
+class PinOutput(BaseModel):
+    pin: str
+    exported: bool
+    level: Optional[int]
+    active: Optional[bool]
+    since: Optional[str]
+    end_switch: Optional[str]
+
+
+class MqttOutput(BaseModel):
+    type: str
+    state: str
+
+
+class EndSwitch(BaseModel):
+    pin: str
+    exported: bool
+    level: Optional[int]
+    high: Optional[bool]
+    since: Optional[str]
+
+
+class ZoneIo(BaseModel):
+    name: str
+    system: str
+    outputs: Optional[List[Union[PinOutput, MqttOutput]]]
+    end_switches: Optional[List[EndSwitch]]
+
+
+class BoilerIo(BaseModel):
+    pin: str
+    exported: bool
+    level: Optional[int]
+    active: Optional[bool]
+    on: Optional[bool]
+
+
+class IoState(BaseModel):
+    time: str
+    boiler: Optional[BoilerIo]
+    zones: List[ZoneIo]
+
+
 class ServiceState(BaseModel):
     name: str
     state: str
@@ -77,8 +122,10 @@ def age_of(sample_time):
     return max(0.0, (datetime.now(timezone.utc) - reported).total_seconds())
 
 
-def create_app(zones, redis, own_version, unit_state=unit_state, read_journal=read_journal, web_dir=WEB_DIR):
+def create_app(zones, redis, own_version, unit_state=unit_state, read_journal=read_journal, web_dir=WEB_DIR,
+               boiler=None, gpio_root=GPIO_ROOT, clock=utc_now):
     app = FastAPI(title="heating_web")
+    io_view = IoView(zones, boiler, SysfsReader(gpio_root), clock)
 
     def read_json(key):
         message = redis.get(key)
@@ -120,6 +167,10 @@ def create_app(zones, redis, own_version, unit_state=unit_state, read_journal=re
     @app.get("/api/live", response_model=List[ZoneLive])
     def live():
         return [read_zone(zone) for zone in zones]
+
+    @app.get("/api/io", response_model=IoState)
+    def io():
+        return io_view.snapshot()
 
     @app.get("/api/services", response_model=List[ServiceState])
     def services():
