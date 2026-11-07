@@ -48,7 +48,7 @@ The device runs Python 3.7.3, so the code and the pins in `requirements.txt` sta
 
 ## Deploying
 
-`./deploy.sh <user> <host>` fills in the unit and setup templates, syncs the package with `rsync --delete` and builds a virtualenv on the device. It installs to `/var/lib/heating_web` and runs as `SERVICE_USER`, default `heating`. The caller creates that user. `.venv` survives the sync. The script refuses `/var/lib/boiler_relay`, `/var/lib/boiler_relay_v2`, `/var/lib/mqtt_bridge` and `/var/lib/mqtt_bridge_v2`.
+`./deploy.sh <user> <host>` fills in the unit and setup templates, syncs the package with `rsync --delete` and builds a virtualenv on the device. It installs to `/var/lib/heating_web` and runs as `SERVICE_USER`, default `heating`. The caller creates that user. `.venv` survives the sync. The unit passes `--port 8090`, not the default 8080. On the device these ports are already in use: 6379 (redis), 1883 (MQTT), 8000, 8080 (nginx) and 8581. Pick a free port for anything new. The script refuses `/var/lib/boiler_relay`, `/var/lib/boiler_relay_v2`, `/var/lib/mqtt_bridge` and `/var/lib/mqtt_bridge_v2`.
 
 The script prints the commands that install `heating_web.service` and restart it. The unit starts after `redis.service` and does not depend on or conflict with any `boiler_relay` unit. Restarting it never touches `boiler_relay_v2`.
 

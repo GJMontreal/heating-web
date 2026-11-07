@@ -6,7 +6,7 @@ After=redis.service
 Type=simple
 User=<service_user>
 WorkingDirectory=/var/lib/<service_name>
-ExecStart=/var/lib/<service_name>/.venv/bin/python -m heating_web --host 0.0.0.0
+ExecStart=/var/lib/<service_name>/.venv/bin/python -m heating_web --host 0.0.0.0 --port 8090
 Restart=on-failure
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONPATH=/var/lib/<service_name>
