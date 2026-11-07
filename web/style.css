@@ -148,6 +148,5 @@ footer .versions .commit { font-family: ui-monospace, SFMono-Regular, Menlo, mon
 .io .note { font-size: 12px; margin-bottom: 12px; }
 .pin { font-size: 11px; color: var(--ink-3); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--grid); vertical-align: middle; }
 th { color: var(--ink-2); font-weight: 600; font-size: 12px; }
-td:nth-child(2), th:nth-child(2) { font-variant-numeric: tabular-nums; }
