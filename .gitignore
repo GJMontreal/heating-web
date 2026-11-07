@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv
+build_info.json
+deploy/setup_python.sh
+deploy/heating_web.service
