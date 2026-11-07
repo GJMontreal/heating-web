@@ -1,6 +1,6 @@
 # heating-web
 
-Web service for the heating system: a read-only API and the web interface it serves. It reads redis. The only key it writes is its own version, `heating/versions/heating-web`.
+Web service for the heating system: a read-only API and the web interface it serves. It reads redis. The only key it writes is its own version, `heating/versions/heating-web`. It also writes its history database on the SD card.
 
 It is deployed and versioned on its own, apart from the control service in `boiler-relay`. The two share only the redis keys listed in `docs/redis-contract.md` of the parent repo, `GJMontreal/heating-system`. The web service reads the control service's `system_config.json` as plain JSON for each zone's `name`, `sensor_path` and `system`. It imports nothing from `boiler_relay`.
 
@@ -35,6 +35,16 @@ The API has no write routes.
 
 Trends and Compare need history and are not built. See `TODO.md`.
 
+## History
+
+A sampler thread reads redis every 10 seconds and writes SQLite to `<history root>/data/history.sqlite3`. The history root is the SD card's mount point, `/var/lib/heating_history` by default and `--history-root` otherwise.
+
+- **Mount guard.** Each cycle checks `os.path.ismount` on the history root. If it is not a mount point, the sampler writes nothing, closes the database and logs one warning. If the data folder is missing it also writes nothing and does not create it. The check repeats every cycle, so sampling resumes when the card returns. Nothing is written to the eMMC.
+- **Raw samples.** One row per zone every 10 seconds, kept for 7 days: the temperature, target, target mode, the legacy `control_value`, `heating_cooling_state`, boost, and the shadow `control_value` and `state`. The temperature is null when the reading is stale. The shadow values are null when the shadow decision is older than 60 seconds.
+- **Windows.** One row per zone for each closed 10 minute window, kept for 14 days: the sample count and the means of the temperature, target, legacy and shadow control values, and the legacy and shadow on-fractions. The sampler builds them from the raw samples at each commit.
+- **SD card wear.** WAL with `synchronous=NORMAL`. Samples are held in one transaction and committed about once a minute, and a stop commits what is pending.
+- **Not yet read.** Nothing reads the database. The Trends and Compare pages and their API routes are still to build.
+
 ## Running
 
 ```
@@ -49,6 +59,7 @@ python -m heating_web --zones /path/to/system_config.json
 | `--port` | `8080` |
 | `--zones` | `/var/lib/boiler_relay_v2/config/system_config.json` |
 | `--gpio-root` | `/sys/class/gpio` |
+| `--history-root` | `/var/lib/heating_history` |
 | `--redis-host` | `localhost` |
 | `--redis-port` | `6379` |
 

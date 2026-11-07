@@ -1,6 +1,6 @@
 # TODO
 
-The web service is a read-only API and the web interface it serves. It reads redis and writes only its own version key. It deploys and versions on its own, apart from `boiler-relay`.
+The web service is a read-only API and the web interface it serves. It reads redis and writes only its own version key and its history database. It deploys and versions on its own, apart from `boiler-relay`.
 
 ## The move
 
@@ -13,14 +13,16 @@ The web service is a read-only API and the web interface it serves. It reads red
 
 Moved from `boiler-relay/TODO.md`, step 3.
 
-- [x] A read-only FastAPI service on the LAN. The versions in `requirements.txt` are pinned for Python 3.7, and the tests pass on 3.7.17. `/api/live`, `/api/services`, `/api/logs` and `/api/versions` exist. History is still open.
+- [x] A read-only FastAPI service on the LAN. The versions in `requirements.txt` are pinned for Python 3.7, and the tests pass on 3.7.17. `/api/live`, `/api/services`, `/api/logs` and `/api/versions` exist. Nothing reads the history yet.
 - [x] Run it from its own unit as `SERVICE_USER` (`heating`), not a new user. The master deploy script adds that user to `systemd-journal`.
-- [ ] Sample redis every 10 seconds into SQLite on the USB drive, keep seven days, and include the legacy keys. Mount the drive by UUID as ext4 with `nofail`. Without the drive, run without history and never write to the eMMC.
+- [x] Sample redis every 10 seconds into SQLite on the SD card, mounted at `/var/lib/heating_history`. Raw samples for 7 days and 10 minute windows for 14 days, with the legacy keys and the shadow keys. The sampler writes only while the path is a mount point, so it never writes to the eMMC.
+- [ ] Deploy the sampler and check on the device that the card is mounted, the database grows and the service user can write the data folder.
+- [ ] Sample the `heating/active` zone keys too, so the Compare page can show the v2 service next to legacy once it runs.
 - [x] Show `mqtt_bridge.service` state and each sensor's age on the Live page. If the bridge dies, every zone calls for no heat after two hours.
 - [x] Include `mqtt_bridge.service` in the Logs page alongside the control services.
 - [x] Physical pin levels: `/api/io` and the Hydronic I/O table on the Live page, from read-only sysfs reads.
 - [x] `web/` first slice: Live, Logs and the versions footer, plain HTML, CSS and JavaScript served by FastAPI. A static mockup is in `docs/web-mockup/` of the parent repo, `GJMontreal/heating-system`.
-- [ ] `web/` Trends and Compare. They need history, which is undecided because the device has no SD card or USB drive. They also need a chart approach that makes no request outside the device.
+- [ ] `web/` Trends and Compare. They need API routes that read the history database, and a chart approach that makes no request outside the device.
 - [ ] Live page fields the mockup shows and the API cannot supply yet. Each needs new API fields from the control service's published state:
   - valve open minutes in the duty window
   - sensor battery and humidity
