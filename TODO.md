@@ -24,7 +24,8 @@ Moved from `boiler-relay/TODO.md`, step 3.
 - [x] `web/` first slice: Live, Logs and the versions footer, plain HTML, CSS and JavaScript served by FastAPI. A static mockup is in `docs/web-mockup/` of the parent repo, `GJMontreal/heating-system`.
 - [x] `web/` Trends and Compare, from `/api/history` and `/api/compare`, drawn as plain SVG.
 - [ ] Check the on-fraction against real heat. Every sample so far has the output off, so the on-fraction of a real window has only been tested with built rows. Boost one zone for about 12 minutes and compare the Compare page with the Live page.
-- [ ] Sample the valve and end switch pin levels, so Trends can show the output and input strips from the mockup.
+- [x] Sample the valve and end switch pin levels and the boiler pin, so Trends shows the output and input strips from the mockup.
+- [ ] Check the pin strips on the device after the sampler restarts: the migration keeps the old rows and the new columns fill from the first cycle.
 - [ ] Compress the larger API responses if the BeagleBone's link needs it. A 14 day Compare answer is about 115 kB.
 - [ ] Live page fields the mockup shows and the API cannot supply yet. Each needs new API fields from the control service's published state:
   - valve open minutes in the duty window
