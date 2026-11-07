@@ -44,6 +44,15 @@ def test_live_is_empty_of_readings_before_anything_is_written(client):
   assert data["active"] is None and data["shadow"] is None
 
 
+def test_live_names_the_system_of_each_zone(redis_client):
+  zones = [Zone("Bedrooms", SENSOR, "hydronic"), Zone("Stairwell", "/home/sensors/s", "electric")]
+  client = TestClient(create_app(zones, redis_client, OWN_VERSION))
+
+  systems = {entry["name"]: entry["system"] for entry in client.get("/api/live").json()}
+
+  assert systems == {"Bedrooms": "hydronic", "Stairwell": "electric"}
+
+
 def test_live_returns_the_homebridge_keys_and_the_sensor_age(client, redis_client):
   redis_client.set(f"{SENSOR}/current_temperature", json.dumps({"value": 19.5, "time": timestamp(30)}))
   redis_client.set(f"{SENSOR}/target_temperature", json.dumps({"value": 21}))

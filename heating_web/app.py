@@ -24,6 +24,7 @@ class Reading(BaseModel):
 
 class ZoneLive(BaseModel):
     name: str
+    system: str
     sensor_path: str
     current_temperature: Optional[Reading]
     sensor_stale: bool
@@ -100,6 +101,7 @@ def create_app(zones, redis, own_version, unit_state=unit_state, read_journal=re
         control = redis.get(f"{path}/{CONTROL_VALUE}")
         return ZoneLive(
             name=zone.name,
+            system=zone.system,
             sensor_path=path,
             current_temperature=reading,
             sensor_stale=reading is None or reading.age_seconds is None or reading.age_seconds > STALE_AFTER,
