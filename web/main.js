@@ -1,5 +1,6 @@
 import { startLive, stopLive } from "./live.js";
 import { startLogs, stopLogs } from "./logs.js";
+import { startVersions } from "./versions.js";
 
 const VIEWS = {
   live: { root: document.getElementById("view-live"), start: startLive, stop: stopLive },
@@ -43,4 +44,5 @@ function setTheme(dark) {
 theme.addEventListener("click", () => setTheme(document.documentElement.dataset.theme !== "dark"));
 setTheme(matchMedia("(prefers-color-scheme: dark)").matches);
 window.addEventListener("hashchange", route);
+startVersions();
 route();
