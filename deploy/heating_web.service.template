@@ -1,0 +1,15 @@
+[Unit]
+Description=Heating Web API
+After=redis.service
+
+[Service]
+Type=simple
+User=<service_user>
+WorkingDirectory=/var/lib/<service_name>
+ExecStart=/var/lib/<service_name>/.venv/bin/python -m heating_web --host 0.0.0.0
+Restart=on-failure
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/var/lib/<service_name>
+
+[Install]
+WantedBy=multi-user.target
