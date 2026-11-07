@@ -22,7 +22,10 @@ Moved from `boiler-relay/TODO.md`, step 3.
 - [x] Include `mqtt_bridge.service` in the Logs page alongside the control services.
 - [x] Physical pin levels: `/api/io` and the Hydronic I/O table on the Live page, from read-only sysfs reads.
 - [x] `web/` first slice: Live, Logs and the versions footer, plain HTML, CSS and JavaScript served by FastAPI. A static mockup is in `docs/web-mockup/` of the parent repo, `GJMontreal/heating-system`.
-- [ ] `web/` Trends and Compare. They need API routes that read the history database, and a chart approach that makes no request outside the device.
+- [x] `web/` Trends and Compare, from `/api/history` and `/api/compare`, drawn as plain SVG.
+- [ ] Check the on-fraction against real heat. Every sample so far has the output off, so the on-fraction of a real window has only been tested with built rows. Boost one zone for about 12 minutes and compare the Compare page with the Live page.
+- [ ] Sample the valve and end switch pin levels, so Trends can show the output and input strips from the mockup.
+- [ ] Compress the larger API responses if the BeagleBone's link needs it. A 14 day Compare answer is about 115 kB.
 - [ ] Live page fields the mockup shows and the API cannot supply yet. Each needs new API fields from the control service's published state:
   - valve open minutes in the duty window
   - sensor battery and humidity
