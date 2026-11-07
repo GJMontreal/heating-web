@@ -16,6 +16,12 @@ Moved from `boiler-relay/TODO.md`, step 3.
 - [x] A read-only FastAPI service on the LAN. The versions in `requirements.txt` are pinned for Python 3.7, and the tests pass on 3.7.17. `/api/live`, `/api/services`, `/api/logs` and `/api/versions` exist. History is still open.
 - [x] Run it from its own unit as `SERVICE_USER` (`heating`), not a new user. The master deploy script adds that user to `systemd-journal`.
 - [ ] Sample redis every 10 seconds into SQLite on the USB drive, keep seven days, and include the legacy keys. Mount the drive by UUID as ext4 with `nofail`. Without the drive, run without history and never write to the eMMC.
-- [ ] Show `mqtt_bridge.service` state and each sensor's age on the Live page. If the bridge dies, every zone calls for no heat after two hours.
-- [ ] Include `mqtt_bridge.service` in the Logs page alongside the control services.
-- [ ] `web/`: plain HTML and JavaScript with a small chart library, served by FastAPI. Pages: Live, Trends, Logs (from the journal) and Compare. The footer lists the version of every service from `heating/versions/*`. A static mockup is in `docs/web-mockup/` of the parent repo, `GJMontreal/heating-system`.
+- [x] Show `mqtt_bridge.service` state and each sensor's age on the Live page. If the bridge dies, every zone calls for no heat after two hours.
+- [x] Include `mqtt_bridge.service` in the Logs page alongside the control services.
+- [x] `web/` first slice: Live, Logs and the versions footer, plain HTML, CSS and JavaScript served by FastAPI. A static mockup is in `docs/web-mockup/` of the parent repo, `GJMontreal/heating-system`.
+- [ ] `web/` Trends and Compare. They need history, which is undecided because the device has no SD card or USB drive. They also need a chart approach that makes no request outside the device.
+- [ ] Live page fields the mockup shows and the API cannot supply yet. Each needs new API fields from the control service's published state:
+  - the boiler on or off state and the end switch readings
+  - valve open minutes in the duty window
+  - sensor battery and humidity
+  - the electric relay's last command

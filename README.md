@@ -8,12 +8,22 @@ It is deployed and versioned on its own, apart from the control service in `boil
 
 | Route | Returns |
 | --- | --- |
-| `GET /api/live` | Each zone's Homebridge keys, the sensor age, a stale flag, and the published `heating/active` and `heating/shadow` state |
+| `GET /api/live` | Each zone's `system`, Homebridge keys, the sensor age, a stale flag, and the published `heating/active` and `heating/shadow` state |
 | `GET /api/services` | `systemctl is-active` for `boiler_relay`, `boiler_relay_v2`, `boiler_relay_v2_shadow` and `mqtt_bridge` |
 | `GET /api/logs?unit=&lines=` | Journal entries for those units. `lines` defaults to 100 and is capped at 500. A failing `journalctl` gives 503 |
 | `GET /api/versions` | `service`, `version`, `commit` and `time` for every `heating/versions/*` key, plus this service's own entry. It answers with only its own entry when redis is down |
 
 The API has no write routes.
+
+## Web interface
+
+`web/` holds plain HTML, CSS and JavaScript with no build step and no request to anything outside the device. The app serves it at `/`, after the API routes. Every page makes GET requests only and writes API strings with `textContent`.
+
+- **Live** (`#live`): the four unit states, then the zones grouped into a Hydronic and an Electric section. Each zone shows the temperature and its age, the target and target mode, boost, the legacy control value and the shadow decision. A zone with a stale reading reads "No heat: reading is stale". The page refreshes every 10 seconds and shows a banner when the API cannot be reached.
+- **Logs** (`#logs`): `/api/logs` with a unit filter, a level filter, a line count, a refresh button and an auto refresh switch that starts off. The level filter runs in the browser on the lines the API returned. The newest line is first.
+- **Footer**: the version and commit of every service from `/api/versions`, refreshed every 60 seconds. The start time is in the tooltip.
+
+Trends and Compare need history and are not built. See `TODO.md`.
 
 ## Running
 
@@ -48,7 +58,7 @@ The device runs Python 3.7.3, so the code and the pins in `requirements.txt` sta
 
 ## Deploying
 
-`./deploy.sh <user> <host>` fills in the unit and setup templates, syncs the package with `rsync --delete` and builds a virtualenv on the device. It installs to `/var/lib/heating_web` and runs as `SERVICE_USER`, default `heating`. The caller creates that user. `.venv` survives the sync. The unit passes `--port 8090`, not the default 8080. On the device these ports are already in use: 6379 (redis), 1883 (MQTT), 8000, 8080 (nginx) and 8581. Pick a free port for anything new. The script refuses `/var/lib/boiler_relay`, `/var/lib/boiler_relay_v2`, `/var/lib/mqtt_bridge` and `/var/lib/mqtt_bridge_v2`.
+`./deploy.sh <user> <host>` fills in the unit and setup templates, syncs the package and `web/` with `rsync --delete` and builds a virtualenv on the device. It installs to `/var/lib/heating_web` and runs as `SERVICE_USER`, default `heating`. The caller creates that user. `.venv` survives the sync. The unit passes `--port 8090`, not the default 8080. On the device these ports are already in use: 6379 (redis), 1883 (MQTT), 8000, 8080 (nginx) and 8581. Pick a free port for anything new. The script refuses `/var/lib/boiler_relay`, `/var/lib/boiler_relay_v2`, `/var/lib/mqtt_bridge` and `/var/lib/mqtt_bridge_v2`.
 
 The virtualenv build and every pip install run under `nice -n 19 ionice -c3`, so they cannot starve the live services on the single core.
 
