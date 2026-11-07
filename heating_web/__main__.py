@@ -8,7 +8,7 @@ from redis.exceptions import RedisError
 
 from heating_web.app import create_app
 from heating_web.version import build_entry, describe, publish_version
-from heating_web.zones import DEFAULT_ZONES, ZonesError, load_zones
+from heating_web.zones import DEFAULT_ZONES, ZonesError, load_config
 
 log = logging.getLogger("heating_web")
 
@@ -36,7 +36,7 @@ def main(argv=None):
     args = parse_arguments(argv)
 
     try:
-        zones = load_zones(args.zones)
+        config = load_config(args.zones)
     except ZonesError as error:
         log.error("invalid zones file: %s", error)
         return 2
@@ -44,7 +44,7 @@ def main(argv=None):
     redis = Redis(host=args.redis_host, port=args.redis_port, db=0)
     entry = build_entry()
     announce(redis, entry)
-    uvicorn.run(create_app(zones, redis, entry), host=args.host, port=args.port)
+    uvicorn.run(create_app(config.zones, redis, entry), host=args.host, port=args.port)
     return 0
 
 
