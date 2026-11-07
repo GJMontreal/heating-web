@@ -7,3 +7,5 @@ def test_the_contract_values_match_the_control_service():
   assert contract.TIME_FORMAT == "%Y-%m-%dT%H:%M:%SZ"
   assert contract.STALE_AFTER == 7200
   assert contract.CONTROL_VALUE == "control_value"
+  assert contract.VERSIONS_PREFIX == "heating/versions/"
+  assert contract.SERVICE_NAME == "heating-web"

@@ -5,8 +5,10 @@ from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
+from redis.exceptions import RedisError
 
-from heating_web.contract import ACTIVE, CONTROL_VALUE, SHADOW, STALE_AFTER, TIME_FORMAT
+from heating_web.contract import (ACTIVE, CONTROL_VALUE, SERVICE_NAME, SHADOW, STALE_AFTER, TIME_FORMAT,
+                                  VERSIONS_PREFIX)
 from heating_web.journal import JournalError, read_journal
 
 SERVICES = ("boiler_relay", "boiler_relay_v2", "boiler_relay_v2_shadow", "mqtt_bridge")
@@ -41,6 +43,13 @@ class LogEntry(BaseModel):
     message: str
 
 
+class VersionEntry(BaseModel):
+    service: str
+    version: str
+    commit: str
+    time: str
+
+
 class ServiceState(BaseModel):
     name: str
     state: str
@@ -64,7 +73,7 @@ def age_of(sample_time):
     return max(0.0, (datetime.now(timezone.utc) - reported).total_seconds())
 
 
-def create_app(zones, redis, unit_state=unit_state, read_journal=read_journal):
+def create_app(zones, redis, own_version, unit_state=unit_state, read_journal=read_journal):
     app = FastAPI(title="heating_web")
 
     def read_json(key):
@@ -119,5 +128,25 @@ def create_app(zones, redis, unit_state=unit_state, read_journal=read_journal):
             return read_journal([unit] if unit else list(SERVICES), lines)
         except JournalError as error:
             raise HTTPException(status_code=503, detail=f"journal unavailable: {error}")
+
+    def read_versions():
+        entries = {}
+        try:
+            for key in redis.scan_iter(match=f"{VERSIONS_PREFIX}*"):
+                service = key.decode("utf-8")[len(VERSIONS_PREFIX):]
+                try:
+                    data = loads(redis.get(key))
+                    entries[service] = VersionEntry(service=service, version=str(data["version"]),
+                                                    commit=str(data["commit"]), time=str(data["time"]))
+                except (TypeError, ValueError, KeyError):
+                    continue
+        except RedisError:
+            pass
+        entries[SERVICE_NAME] = VersionEntry(service=SERVICE_NAME, **own_version)
+        return [entries[name] for name in sorted(entries)]
+
+    @app.get("/api/versions", response_model=List[VersionEntry])
+    def versions():
+        return read_versions()
 
     return app

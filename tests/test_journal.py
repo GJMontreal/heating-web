@@ -11,6 +11,7 @@ from heating_web.zones import Zone
 
 SENSOR = "/home/sensors/a"
 ZONES = [Zone("Bedrooms", SENSOR, "hydronic")]
+OWN_VERSION = {"version": "0.1.0", "commit": "abc1234", "time": "2025-11-07T12:00:00Z"}
 
 
 def line(**fields):
@@ -106,7 +107,7 @@ def client(redis_client, requests_seen):
     requests_seen.append((units, lines))
     return [{"time": "2025-11-07T12:53:20Z", "unit": units[0], "priority": 6, "message": "hello"}]
 
-  return TestClient(create_app(ZONES, redis_client, read_journal=fake))
+  return TestClient(create_app(ZONES, redis_client, OWN_VERSION, read_journal=fake))
 
 
 def test_logs_defaults_to_every_service_and_a_hundred_lines(client, requests_seen):
@@ -133,7 +134,7 @@ def test_logs_reports_an_unavailable_journal_as_503(redis_client):
   def broken(units, lines):
     raise JournalError("no access")
 
-  client = TestClient(create_app(ZONES, redis_client, read_journal=broken))
+  client = TestClient(create_app(ZONES, redis_client, OWN_VERSION, read_journal=broken))
 
   response = client.get("/api/logs")
 

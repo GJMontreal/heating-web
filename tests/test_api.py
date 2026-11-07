@@ -9,6 +9,7 @@ from heating_web.zones import Zone
 
 SENSOR = "/home/sensors/a"
 ZONES = [Zone("Bedrooms", SENSOR, "hydronic")]
+OWN_VERSION = {"version": "0.1.0", "commit": "abc1234", "time": "2025-11-07T12:00:00Z"}
 
 
 def timestamp(age=0):
@@ -23,7 +24,7 @@ def states():
 
 @pytest.fixture
 def client(redis_client, states):
-  app = create_app(ZONES, redis_client, unit_state=lambda name: states.get(name, "inactive"))
+  app = create_app(ZONES, redis_client, OWN_VERSION, unit_state=lambda name: states.get(name, "inactive"))
   return TestClient(app)
 
 
@@ -100,3 +101,46 @@ def test_the_api_has_no_write_routes(client):
   methods = {method for route in client.app.routes for method in getattr(route, "methods", set())}
 
   assert methods <= {"GET", "HEAD", "OPTIONS"}
+
+
+def test_versions_lists_every_service_key_and_its_own_entry(client, redis_client):
+  redis_client.set("heating/versions/boiler-relay", json.dumps({"version": "0.1.0", "commit": "f198d10", "time": "2025-11-07T11:00:00Z"}))
+  redis_client.set("heating/versions/mqtt-bridge", json.dumps({"version": "0.2.0", "commit": "9a8b7c6", "time": "2025-11-07T10:00:00Z"}))
+
+  response = client.get("/api/versions")
+
+  assert response.status_code == 200
+  assert response.json() == [
+    {"service": "boiler-relay", "version": "0.1.0", "commit": "f198d10", "time": "2025-11-07T11:00:00Z"},
+    {"service": "heating-web", **OWN_VERSION},
+    {"service": "mqtt-bridge", "version": "0.2.0", "commit": "9a8b7c6", "time": "2025-11-07T10:00:00Z"},
+  ]
+
+
+def test_versions_returns_its_own_entry_when_nothing_is_published(client):
+  assert client.get("/api/versions").json() == [{"service": "heating-web", **OWN_VERSION}]
+
+
+def test_versions_prefers_the_live_entry_over_the_published_one(client, redis_client):
+  redis_client.set("heating/versions/heating-web", json.dumps({"version": "0.0.1", "commit": "old", "time": "2025-01-01T00:00:00Z"}))
+
+  assert client.get("/api/versions").json() == [{"service": "heating-web", **OWN_VERSION}]
+
+
+@pytest.mark.parametrize("payload", ["not json", "[]", '{"version": "1"}', "null"])
+def test_versions_skips_an_unreadable_entry(client, redis_client, payload):
+  redis_client.set("heating/versions/broken", payload)
+
+  assert [item["service"] for item in client.get("/api/versions").json()] == ["heating-web"]
+
+
+def test_versions_still_answers_when_redis_is_down(redis_client):
+  from redis.exceptions import ConnectionError as RedisConnectionError
+
+  class DownRedis:
+    def scan_iter(self, match):
+      raise RedisConnectionError("redis is down")
+
+  client = TestClient(create_app(ZONES, DownRedis(), OWN_VERSION))
+
+  assert client.get("/api/versions").json() == [{"service": "heating-web", **OWN_VERSION}]
