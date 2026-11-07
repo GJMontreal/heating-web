@@ -129,8 +129,9 @@ function sections() {
   for (const system of systems) {
     const [title, note] = SYSTEMS[system] || [system, ""];
     nodes.push(el("div", { className: "section-title" }, [el("h2", { text: title }), el("span", { className: "muted", text: note })]));
-    if (system === "hydronic" && io !== null) nodes.push(ioCard(io));
-    nodes.push(el("div", { className: "grid" }, zones.filter((zone) => zone.system === system).map(zoneCard)));
+    const cards = zones.filter((zone) => zone.system === system).map(zoneCard);
+    if (system === "hydronic" && io !== null) cards.unshift(ioCard(io));
+    nodes.push(el("div", { className: "grid" }, cards));
   }
   return nodes;
 }

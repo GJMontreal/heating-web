@@ -7,7 +7,7 @@ from heating_web.contract import SERVICE_NAME, TIME_FORMAT, VERSIONS_PREFIX
 
 log = logging.getLogger(__name__)
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 
 BUILD_INFO = Path(__file__).resolve().parent.parent / "build_info.json"
 UNKNOWN = "unknown"

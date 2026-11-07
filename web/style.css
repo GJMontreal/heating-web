@@ -144,7 +144,7 @@ footer .versions span.entry { display: inline-flex; gap: 6px; align-items: basel
 footer .versions b { color: var(--ink); font-weight: 600; }
 footer .versions .commit { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-style: normal; }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-.io { position: relative; margin-bottom: 16px; padding: 12px; width: fit-content; max-width: 100%; overflow-x: auto; }
+.io { position: relative; align-self: start; min-width: 0; padding: 12px; overflow-x: auto; }
 .io h3 { font-size: 13px; font-weight: 600; margin: 0 0 6px; }
 .io table { width: auto; line-height: 1.25; }
 .io th, .io td { padding: 3px 12px 3px 0; }
