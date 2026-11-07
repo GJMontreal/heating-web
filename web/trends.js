@@ -11,6 +11,7 @@ const TABLE_ROWS = 24;
 const BLUE = "var(--s1)";
 const ORANGE = "var(--s2)";
 const GRAY = "var(--ink-3)";
+const INPUT = "var(--ink-2)";
 
 let root = null;
 let timer = null;
@@ -55,6 +56,11 @@ function sparkCard(zone) {
     render();
   });
   return card;
+}
+
+function boilerOn(times) {
+  const byTime = new Map(data.boiler.t.map((time, index) => [time, data.boiler.on[index]]));
+  return times.map((time) => (byTime.has(time) ? byTime.get(time) : null));
 }
 
 function everyNth(zone) {
@@ -115,9 +121,19 @@ function heatingCard(zone) {
       label: `${zone.name} control value`, times: zone.t, bucket: data.bucket_seconds, start: data.start, end: data.end,
       yMin: 0, yMax: 1, tickFmt: (tick) => tick.toFixed(1), series,
     });
-    const rows = [{ name: "Shadow heating state", color: BLUE, values: zone.sh_state }];
-    if (zone.legacy_available) rows.unshift({ name: "Legacy heating state", color: BLUE, values: zone.hc });
-    stateStrips(strips, { label: `${zone.name} heating state over time`, times: zone.t, bucket: data.bucket_seconds, start: data.start, end: data.end, rows });
+    const rows = [
+      { name: "Valve output", color: BLUE, values: zone.out, verb: "open" },
+      { name: "End switch", color: INPUT, values: zone.sw, verb: "open" },
+      { name: "Boiler", color: BLUE, values: zone.system === "hydronic" ? boilerOn(zone.t) : [] },
+      { name: "Legacy heating state", color: BLUE, values: zone.legacy_available ? zone.hc : [] },
+      { name: "Shadow heating state", color: BLUE, values: zone.sh_state },
+    ].filter((row) => row.values.some((value) => value !== null));
+    if (rows.length === 0) {
+      strips.replaceChildren();
+      return;
+    }
+    stateStrips(strips, { label: `${zone.name} valve, end switch, boiler and heating state over time`, times: zone.t,
+      bucket: data.bucket_seconds, start: data.start, end: data.end, rows });
   } };
 }
 

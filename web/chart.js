@@ -227,7 +227,7 @@ export function stateStrips(box, options) {
     cross.setAttribute("display", "block");
     const lines = rows.map((row) => {
       const value = row.values[index];
-      return tipRow(row.color, row.name, value === null || value === undefined ? "no data" : `${Math.round(value * 100)}% on`);
+      return tipRow(row.color, row.name, value === null || value === undefined ? "no data" : `${Math.round(value * 100)}% ${row.verb || "on"}`);
     });
     tip.replaceChildren(el("div", { className: "t", text: new Date(times[index] * 1000).toLocaleString() }), ...lines);
     tip.hidden = false;
