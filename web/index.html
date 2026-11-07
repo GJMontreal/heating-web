@@ -2,9 +2,25 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'">
 <title>Heating</title>
+<link rel="stylesheet" href="style.css">
+<script type="module" src="main.js"></script>
 </head>
 <body>
-<h1>Heating</h1>
+<header>
+  <h1>Heating</h1>
+  <nav id="nav">
+    <a href="#live" data-view="live">Live</a>
+  </nav>
+  <span class="spacer"></span>
+  <span class="muted" id="updated"></span>
+  <button class="ghost" id="theme" type="button">Dark</button>
+</header>
+<div class="alert" id="alert" role="alert" hidden></div>
+<main>
+  <section id="view-live" hidden></section>
+</main>
 </body>
 </html>
