@@ -23,3 +23,12 @@ export function meter(value, extraClass = "") {
   fill.style.width = `${Math.max(0, Math.min(1, value)) * 100}%`;
   return el("div", { className: `meter ${extraClass}`.trim() }, [fill]);
 }
+
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+
+export function svg(tag, attrs = {}, children = []) {
+  const node = document.createElementNS(SVG_NAMESPACE, tag);
+  for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, String(value));
+  for (const child of children) node.append(child);
+  return node;
+}

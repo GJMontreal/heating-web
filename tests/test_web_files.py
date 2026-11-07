@@ -14,7 +14,9 @@ def test_the_web_folder_has_pages_to_check():
 
 @pytest.mark.parametrize("path", FILES, ids=lambda path: path.name)
 def test_no_file_reaches_outside_the_device(path):
-  assert not re.search(r"https?://|//cdn\.|@import", path.read_text())
+  text = path.read_text().replace("http://www.w3.org/2000/svg", "")
+
+  assert not re.search(r"https?://|//cdn\.|@import", text)
 
 
 @pytest.mark.parametrize("path", FILES, ids=lambda path: path.name)

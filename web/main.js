@@ -1,9 +1,11 @@
 import { startLive, stopLive } from "./live.js";
 import { startLogs, stopLogs } from "./logs.js";
+import { startTrends, stopTrends } from "./trends.js";
 import { startVersions } from "./versions.js";
 
 const VIEWS = {
   live: { root: document.getElementById("view-live"), start: startLive, stop: stopLive },
+  trends: { root: document.getElementById("view-trends"), start: startTrends, stop: stopTrends },
   logs: { root: document.getElementById("view-logs"), start: startLogs, stop: stopLogs },
 };
 const DEFAULT_VIEW = "live";
