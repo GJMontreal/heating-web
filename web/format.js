@@ -18,3 +18,19 @@ export function clock(date) {
 export function temperature(value) {
   return value === null || value === undefined ? "–" : value.toFixed(1);
 }
+
+export const LEVELS = ["error", "warning", "info", "debug"];
+
+export function levelOf(priority) {
+  if (priority === null || priority === undefined) return null;
+  if (priority <= 3) return "error";
+  if (priority === 4) return "warning";
+  if (priority <= 6) return "info";
+  return "debug";
+}
+
+export function atLeast(level, minimum) {
+  if (minimum === "all") return true;
+  if (level === null) return false;
+  return LEVELS.indexOf(level) <= LEVELS.indexOf(minimum);
+}

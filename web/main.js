@@ -1,7 +1,9 @@
 import { startLive, stopLive } from "./live.js";
+import { startLogs, stopLogs } from "./logs.js";
 
 const VIEWS = {
   live: { root: document.getElementById("view-live"), start: startLive, stop: stopLive },
+  logs: { root: document.getElementById("view-logs"), start: startLogs, stop: stopLogs },
 };
 const DEFAULT_VIEW = "live";
 const updated = document.getElementById("updated");
