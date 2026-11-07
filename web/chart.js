@@ -253,3 +253,61 @@ export function sparkline(values, times, bucket, start, end, color) {
   nodes.push(svg("circle", { cx: x(lastTime), cy: y(present[last]), r: 4, fill: color, stroke: "var(--surface)", "stroke-width": 2 }));
   return svg("svg", { viewBox: `0 0 ${width} ${height}`, class: "spark", "aria-hidden": "true" }, nodes);
 }
+
+export function barChart(box, options) {
+  const { groups, series, yMax, label } = options;
+  const width = 900;
+  const height = 280;
+  const left = 44;
+  const right = 16;
+  const top = 16;
+  const bottom = 40;
+  const y = (value) => top + (1 - value / yMax) * (height - top - bottom);
+  const band = (width - left - right) / Math.max(1, groups.length);
+  const barWidth = Math.min(20, band / 4);
+  const spacing = 2;
+  const nodes = [];
+  for (const tick of niceTicks(0, yMax, 4)) {
+    nodes.push(svg("line", { class: "grid-line", x1: left, x2: width - right, y1: y(tick), y2: y(tick) }));
+    const text = svg("text", { x: left - 8, y: y(tick) + 4, "text-anchor": "end" });
+    text.textContent = options.tickFmt(tick);
+    nodes.push(text);
+  }
+  nodes.push(svg("line", { class: "axis-line", x1: left, x2: width - right, y1: y(0), y2: y(0) }));
+  const hit = [];
+  groups.forEach((group, index) => {
+    const center = left + band * index + band / 2;
+    group.values.forEach((value, position) => {
+      if (value === null) return;
+      const x0 = center + (position === 0 ? -barWidth - spacing / 2 : spacing / 2);
+      const bar = Math.max(0, y(0) - y(value));
+      const radius = Math.min(4, bar / 2);
+      nodes.push(bar === 0
+        ? svg("line", { x1: x0, x2: x0 + barWidth, y1: y(0), y2: y(0), stroke: series[position].color, "stroke-width": 2 })
+        : svg("path", { fill: series[position].color,
+          d: `M${x0} ${y(0)} V${y(value) + radius} Q${x0} ${y(value)} ${x0 + radius} ${y(value)} H${x0 + barWidth - radius} Q${x0 + barWidth} ${y(value)} ${x0 + barWidth} ${y(value) + radius} V${y(0)} Z` }));
+    });
+    const text = svg("text", { x: center, y: height - 18, "text-anchor": "middle" });
+    text.textContent = group.name;
+    nodes.push(text);
+    if (group.note) {
+      const note = svg("text", { x: center, y: height - 5, "text-anchor": "middle" });
+      note.textContent = group.note;
+      nodes.push(note);
+    }
+    hit.push(svg("rect", { x: center - band / 2, y: top, width: band, height: height - top - bottom, fill: "transparent", "data-index": index }));
+  });
+  const chart = svg("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": label }, [...nodes, ...hit]);
+  box.replaceChildren(chart);
+  const tip = tooltipBox(box);
+  hit.forEach((rect, index) => {
+    rect.addEventListener("mousemove", (event) => {
+      const group = groups[index];
+      const rows = series.map((entry, position) => tipRow(entry.color, entry.name, group.values[position] === null ? "no data" : options.fmt(group.values[position])));
+      tip.replaceChildren(el("div", { className: "t", text: group.name }), ...rows);
+      tip.hidden = false;
+      placeTip(box, tip, event);
+    });
+    rect.addEventListener("mouseleave", () => { tip.hidden = true; });
+  });
+}
