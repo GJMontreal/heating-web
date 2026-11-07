@@ -8,6 +8,7 @@ from redis.exceptions import RedisError
 
 from heating_web.app import create_app
 from heating_web.gpio import GPIO_ROOT
+from heating_web.history_reader import HistoryReader
 from heating_web.sampler import HISTORY_ROOT, Sampler
 from heating_web.version import build_entry, describe, publish_version
 from heating_web.zones import DEFAULT_ZONES, ZonesError, load_config
@@ -51,7 +52,8 @@ def main(argv=None):
     sampler = Sampler(redis, config.zones, root=args.history_root)
     sampler.start()
     try:
-        uvicorn.run(create_app(config.zones, redis, entry, boiler=config.boiler, gpio_root=args.gpio_root),
+        uvicorn.run(create_app(config.zones, redis, entry, boiler=config.boiler, gpio_root=args.gpio_root,
+                               history=HistoryReader(args.history_root)),
                     host=args.host, port=args.port)
     finally:
         sampler.stop()

@@ -10,6 +10,7 @@ from redis.exceptions import RedisError
 
 from heating_web.contract import SERVICE_NAME, VERSIONS_PREFIX
 from heating_web.gpio import GPIO_ROOT, SysfsReader
+from heating_web.history_reader import MAX_HOURS, MAX_WINDOW_HOURS, HistoryReader, HistoryUnavailable
 from heating_web.io_state import IoView, utc_now
 from heating_web.journal import JournalError, read_journal
 from heating_web.live_state import ZoneLive, read_zone
@@ -77,6 +78,59 @@ class IoState(BaseModel):
     zones: List[ZoneIo]
 
 
+class SeriesZone(BaseModel):
+    name: str
+    system: str
+    legacy_available: bool
+    t: List[int]
+    temp: List[Optional[float]]
+    target: List[Optional[float]]
+    ctl: List[Optional[float]]
+    sh_ctl: List[Optional[float]]
+    hc: List[Optional[float]]
+    sh_state: List[Optional[float]]
+
+
+class HistoryState(BaseModel):
+    start: int
+    end: int
+    bucket_seconds: int
+    zones: List[SeriesZone]
+
+
+class WindowColumns(BaseModel):
+    start: List[int]
+    n: List[int]
+    temp: List[Optional[float]]
+    target: List[Optional[float]]
+    ctl: List[Optional[float]]
+    sh_ctl: List[Optional[float]]
+    on_fraction: List[Optional[float]]
+    sh_on_fraction: List[Optional[float]]
+
+
+class WindowSummary(BaseModel):
+    windows: int
+    ctl: Optional[float]
+    sh_ctl: Optional[float]
+    on_fraction: Optional[float]
+    sh_on_fraction: Optional[float]
+
+
+class CompareZone(BaseModel):
+    name: str
+    system: str
+    legacy_available: bool
+    windows: WindowColumns
+    summary: WindowSummary
+
+
+class CompareState(BaseModel):
+    start: int
+    end: int
+    zones: List[CompareZone]
+
+
 class ServiceState(BaseModel):
     name: str
     state: str
@@ -93,9 +147,21 @@ def unit_state(name):
 
 
 def create_app(zones, redis, own_version, unit_state=unit_state, read_journal=read_journal, web_dir=WEB_DIR,
-               boiler=None, gpio_root=GPIO_ROOT, clock=utc_now):
+               boiler=None, gpio_root=GPIO_ROOT, clock=utc_now, history=None):
     app = FastAPI(title="heating_web")
     io_view = IoView(zones, boiler, SysfsReader(gpio_root), clock)
+    history = history or HistoryReader()
+
+    def chosen(zone):
+        if zone is None:
+            return list(zones)
+        found = [entry for entry in zones if entry.name == zone]
+        if not found:
+            raise HTTPException(status_code=404, detail=f"unknown zone {zone!r}")
+        return found
+
+    def unavailable(error):
+        return HTTPException(status_code=503, detail=f"history unavailable: {error}")
 
     @app.get("/api/live", response_model=List[ZoneLive])
     def live():
@@ -104,6 +170,21 @@ def create_app(zones, redis, own_version, unit_state=unit_state, read_journal=re
     @app.get("/api/io", response_model=IoState)
     def io():
         return io_view.snapshot()
+
+    @app.get("/api/history", response_model=HistoryState)
+    def history_series(zone: Optional[str] = None, hours: int = Query(24, ge=1, le=MAX_HOURS),
+                       points: int = Query(360, ge=10, le=1000)):
+        try:
+            return history.series(chosen(zone), hours, points)
+        except HistoryUnavailable as error:
+            raise unavailable(error)
+
+    @app.get("/api/compare", response_model=CompareState)
+    def compare(zone: Optional[str] = None, hours: int = Query(24, ge=1, le=MAX_WINDOW_HOURS)):
+        try:
+            return history.windows(chosen(zone), hours)
+        except HistoryUnavailable as error:
+            raise unavailable(error)
 
     @app.get("/api/services", response_model=List[ServiceState])
     def services():
