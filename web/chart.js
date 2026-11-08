@@ -1,3 +1,4 @@
+import { curveModel } from "./curve.js";
 import { el, svg } from "./dom.js";
 import { clock } from "./format.js";
 
@@ -122,6 +123,30 @@ function pathOf(run, x, y, step) {
   }).join(" ");
 }
 
+function nearestKnot(knots, time) {
+  return knots.length === 0 ? null : knots[nearest(knots.map((knot) => knot[0]), time)];
+}
+
+function smoothNodes(entry, x, y) {
+  const stroke = { fill: "none", stroke: entry.color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" };
+  const nodes = [];
+  for (const flat of entry.model.flats) {
+    nodes.push(svg("path", { d: `M${x(flat.from)} ${y(flat.value)} H${x(flat.to)}`, ...stroke }));
+  }
+  for (const curve of entry.model.curves) {
+    const [first] = curve.knots;
+    const segmentsOf = curve.beziers.map(([ax, ay, bx, by, cx, cy]) => `C${x(ax)} ${y(ay)} ${x(bx)} ${y(by)} ${x(cx)} ${y(cy)}`);
+    nodes.push(svg("path", { d: `M${x(first[0])} ${y(first[1])} ${segmentsOf.join(" ")}`, ...stroke }));
+  }
+  for (const hold of entry.model.holds) {
+    nodes.push(svg("path", { d: `M${x(hold.from)} ${y(hold.value)} H${x(hold.to)}`, ...stroke, "stroke-dasharray": "4 4" }));
+  }
+  for (const [time, value] of entry.model.knots) {
+    nodes.push(svg("circle", { cx: x(time), cy: y(value), r: 2.5, fill: entry.color, stroke: "var(--surface)", "stroke-width": 1 }));
+  }
+  return nodes;
+}
+
 export function lineChart(box, options) {
   const { times, series, yMin, yMax, label, bucket, start, end } = options;
   const height = options.height || 220;
@@ -141,6 +166,13 @@ export function lineChart(box, options) {
     nodes.push(text);
   }
   for (const entry of series) {
+    if (entry.smooth) {
+      const runs = segments(times, entry.values, bucket);
+      const reachesEnd = runs.length > 0 && runs[runs.length - 1][runs[runs.length - 1].length - 1][0] === times[times.length - 1];
+      entry.model = curveModel(runs, end, reachesEnd);
+      nodes.push(...smoothNodes(entry, x, y));
+      continue;
+    }
     for (const run of segments(times, entry.values, bucket)) {
       if (run.length === 1) {
         nodes.push(svg("circle", { cx: x(run[0][0]), cy: y(run[0][1]), r: 2.5, fill: entry.color }));
@@ -169,17 +201,23 @@ export function lineChart(box, options) {
     cross.setAttribute("x1", x(times[index]));
     cross.setAttribute("x2", x(times[index]));
     cross.setAttribute("display", "block");
+    const reports = series.map((entry) => (entry.smooth ? nearestKnot(entry.model.knots, time) : null));
     series.forEach((entry, position) => {
-      const value = entry.values[index];
+      const knot = reports[position];
+      const value = entry.smooth ? (knot === null ? null : knot[1]) : entry.values[index];
       if (value === null || value === undefined) {
         dots[position].setAttribute("display", "none");
         return;
       }
-      dots[position].setAttribute("cx", x(times[index]));
+      dots[position].setAttribute("cx", x(entry.smooth ? knot[0] : times[index]));
       dots[position].setAttribute("cy", y(value));
       dots[position].setAttribute("display", "block");
     });
-    const rows = series.map((entry) => tipRow(entry.color, entry.name, entry.fmt(entry.values[index])));
+    const rows = series.map((entry, position) => {
+      if (!entry.smooth) return tipRow(entry.color, entry.name, entry.fmt(entry.values[index]));
+      const knot = reports[position];
+      return tipRow(entry.color, entry.name, knot === null ? entry.fmt(null) : entry.fmtKnot(knot[1], knot[0]));
+    });
     tip.replaceChildren(el("div", { className: "t", text: new Date(times[index] * 1000).toLocaleString() }), ...rows);
     tip.hidden = false;
     placeTip(box, tip, event);

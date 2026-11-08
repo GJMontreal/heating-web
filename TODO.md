@@ -31,6 +31,8 @@ Moved from `boiler-relay/TODO.md`, step 3.
 - [ ] Check the pin strips on the device after the sampler restarts: the migration keeps the old rows and the new columns fill from the first cycle.
 - [x] Trends ranges of 30 minutes and 1 hour, and a smaller `/api/history` response: one shared time axis, empty lists for empty series, 2 decimals and no `.0`.
 - [x] Name the web UI by a site name from a device-only file, the control config or `Heating`, through `GET /api/site`.
+- [x] Draw the measured temperature on Trends as a monotone cubic through the sensor's reports, with markers, a dashed hold to the edge and a 1 °C jump limit.
+- [ ] Check the temperature curve in a browser against the real sensors: the 1 °C jump limit, the marker density at 7 days and the 30 minute range.
 - [ ] Compress the larger API responses if the BeagleBone's link needs it. A 14 day Compare answer is about 115 kB.
 - [ ] Live page fields the mockup shows and the API cannot supply yet. Each needs new API fields from the control service's published state:
   - valve open minutes in the duty window

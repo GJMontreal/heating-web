@@ -54,6 +54,11 @@ function tempText(value) {
   return value === null || value === undefined ? "not set" : `${temperature(value)} °C`;
 }
 
+function reportText(value, time) {
+  const when = new Date(time * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return `${tempText(value)}, reported ${when}`;
+}
+
 function sparkCard(zone) {
   const latest = lastValue(zone.temp);
   const picture = sparkline(zone.temp, zone.t, data.bucket_seconds, data.start, data.end, BLUE)
@@ -116,7 +121,7 @@ function temperatureCard(zone) {
       label: `${zone.name} temperature and target`, times: zone.t, bucket: data.bucket_seconds, start: data.start, end: data.end,
       yMin: Math.floor(Math.min(...present) - 0.5), yMax: Math.ceil(Math.max(...present) + 0.5),
       series: [
-        { name: "Temperature", color: BLUE, values: zone.temp, fmt: tempText },
+        { name: "Temperature", color: BLUE, values: zone.temp, fmt: tempText, smooth: true, fmtKnot: reportText },
         { name: "Target", color: GRAY, values: zone.target, step: true, fmt: tempText },
       ],
     });
