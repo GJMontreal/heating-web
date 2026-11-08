@@ -2,7 +2,7 @@ import { get } from "./api.js";
 import { report } from "./alert.js";
 import { barChart, legend, niceTicks } from "./chart.js";
 import { el, status } from "./dom.js";
-import { LEGACY_PID, liveController, livePid, pidText, samePid } from "./controller.js";
+import { LEGACY_PID, liveChanged, liveController, livePid, markerLabel, pidText, rangeController, samePid } from "./controller.js";
 import { clock } from "./format.js";
 
 const REFRESH_MS = 60000;
@@ -38,7 +38,7 @@ function signed(value) {
 }
 
 function verdict(zone, legacy, shadow) {
-  if (!zone.legacy_available) return status("", "○", `No ${liveController(services).label.toLowerCase()}`);
+  if (!zone.legacy_available) return status("", "○", `No ${rangeController(data.zones, liveController(services)).label.toLowerCase()}`);
   if (legacy === null || shadow === null) return status("", "?", "No data");
   if (Math.abs(shadow - legacy) > DIVERGES_ABOVE) return status("warn", "⚠", "Diverges");
   return status("good", "✓", "Matches");
@@ -88,7 +88,7 @@ function profilesCard(controller) {
   const source = controller.v2 ? "the active service's published gains" : `the legacy defaults, ${pidText(LEGACY_PID)}`;
   notes.push(el("div", { className: "small-label", text: `The ${controller.label} gains come from ${source}. The shadow gains come from the shadow service now.` }));
   return el("div", { className: "card" }, [
-    el("h2", { text: "PID profiles" }),
+    el("h2", { text: "PID profiles now" }),
     el("table", { className: "history-table" }, [el("thead", {}, [head]), el("tbody", {}, entries.map((entry) => entry.row))]),
     ...notes,
   ]);
@@ -104,6 +104,31 @@ function historyLine(zone) {
   if (changes.length === 1) return el("li", { text: `${zone.name}: ${changes[0].pid === null ? "no profile recorded" : pidText(changes[0].pid)} for the whole range` });
   const parts = changes.map((change, index) => `${index === 0 ? "from the start" : `changed ${whenText(change.start)} to`}: ${change.pid === null ? "no profile recorded" : pidText(change.pid)}`);
   return el("li", { text: `${zone.name}, profile changed ${changes.length - 1} ${changes.length === 2 ? "time" : "times"}. ${parts.join(". ")}` });
+}
+
+function liveText(change) {
+  if (change.controller === null) return "no record";
+  return `${markerLabel(change.controller)}, ${change.pid === null ? "gains not published" : pidText(change.pid)}`;
+}
+
+function liveLine(zone) {
+  const changes = zone.live;
+  if (changes.length === 0) return el("li", { text: `${zone.name}: no windows in this range` });
+  if (changes.length === 1) return el("li", { text: `${zone.name}: ${liveText(changes[0])} for the whole range` });
+  const parts = changes.map((change, index) => `${index === 0 ? "from the start" : `from ${whenText(change.start)}`}: ${liveText(change)}`);
+  return el("li", { text: `${zone.name}. ${parts.join(". ")}` });
+}
+
+function liveCard(controller) {
+  const notes = [el("div", { className: "small-label", text: "The controller and gains are stored per ten-minute window. Windows from before 0.8.0 have no record." })];
+  if (data.zones.some(liveChanged)) {
+    notes.unshift(el("div", { className: "small-label warn-text", text: `The live controller or its gains changed inside this range. The means above mix windows that ran different gains${controller.mixed ? " and different controllers" : ""}. Pick a range after the change to compare like with like.` }));
+  }
+  return el("div", { className: "card" }, [
+    el("h2", { text: "Live side in this range" }),
+    el("ul", { className: "profile-history" }, data.zones.map(liveLine)),
+    ...notes,
+  ]);
 }
 
 function historyCard() {
@@ -130,7 +155,8 @@ function render() {
   }
   if (data === null) return;
   const controller = liveController(services);
-  const side = controller.label;
+  const range = rangeController(data.zones, controller);
+  const side = range.label;
   const [, label, legacyKey, shadowKey] = METRICS.find(([key]) => key === state.metric);
   const windows = Math.max(0, ...data.zones.map((zone) => zone.summary.windows));
   const toolbar = el("div", { className: "toolbar" }, [
@@ -162,7 +188,7 @@ function render() {
       el("tbody", {}, data.zones.map((zone) => rowFor(zone, legacyKey, shadowKey)))]),
     el("div", { className: "small-label", text: `A zone diverges when the window means differ by more than ${DIVERGES_ABOVE}. A zone with no values from the live controller shows no live side. Gaps in history are not counted as zero.` }),
   ]);
-  root.replaceChildren(toolbar, chartCard, table, profilesCard(controller), historyCard());
+  root.replaceChildren(toolbar, chartCard, table, profilesCard(controller), liveCard(range), historyCard());
   barChart(box, {
     label: `${label} per zone, ${side} against shadow`, groups, series: [{ name: side, color: BLUE }, { name: "Shadow", color: ORANGE }],
     yMax, tickFmt: (tick) => tick.toFixed(1), fmt: (value) => value.toFixed(3),

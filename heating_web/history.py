@@ -1,6 +1,6 @@
 import sqlite3
 
-SAMPLE_COLUMNS = ("temp", "target", "mode", "ctl", "hc", "boost", "sh_ctl", "sh_state", "out", "sw", "profile")
+SAMPLE_COLUMNS = ("temp", "target", "mode", "ctl", "hc", "boost", "sh_ctl", "sh_state", "out", "sw", "profile", "live")
 RAW_RETENTION = 7 * 24 * 3600
 WINDOW_RETENTION = 14 * 24 * 3600
 WINDOW_SECONDS = 600
@@ -26,16 +26,25 @@ ADDED_COLUMNS = (
     ("windows", "sw_fraction", "REAL"),
     ("samples", "profile", "INTEGER"),
     ("windows", "profile", "INTEGER"),
+    ("samples", "live", "INTEGER"),
+    ("windows", "live", "INTEGER"),
 )
+
+
+def latest_in_window(column):
+    return (
+        f"(SELECT {column} FROM samples AS latest WHERE latest.zone = samples.zone AND latest.{column} IS NOT NULL"
+        " AND latest.ts >= (samples.ts / :width) * :width AND latest.ts < (samples.ts / :width) * :width + :width"
+        " ORDER BY latest.ts DESC LIMIT 1)"
+    )
+
 
 AGGREGATE = (
     "INSERT OR REPLACE INTO windows (zone, start, n, temp, target, ctl, sh_ctl, on_fraction, sh_on_fraction,"
-    " out_fraction, sw_fraction, profile)"
+    " out_fraction, sw_fraction, profile, live)"
     " SELECT zone, (ts / :width) * :width AS start, count(*), avg(temp), avg(target), avg(ctl), avg(sh_ctl),"
-    " avg(hc), avg(sh_state), avg(out), avg(sw),"
-    " (SELECT profile FROM samples AS latest WHERE latest.zone = samples.zone AND latest.profile IS NOT NULL"
-    " AND latest.ts >= (samples.ts / :width) * :width AND latest.ts < (samples.ts / :width) * :width + :width"
-    " ORDER BY latest.ts DESC LIMIT 1)"
+    " avg(hc), avg(sh_state), avg(out), avg(sw), "
+    + latest_in_window("profile") + ", " + latest_in_window("live") +
     " FROM samples WHERE ts >= :begin AND ts < :end GROUP BY zone, start"
 )
 AGGREGATE_BOILER = (
@@ -78,8 +87,9 @@ class History:
         return self.profile_ids[gains]
 
     def add(self, ts, zone, **values):
-        if values.get("profile") is not None:
-            values["profile"] = self.profile_id(values["profile"])
+        for column in ("profile", "live"):
+            if values.get(column) is not None:
+                values[column] = self.profile_id(values[column])
         columns = ["zone", "ts"] + [name for name in SAMPLE_COLUMNS if values.get(name) is not None]
         arguments = [self.zone_id(zone), int(ts)] + [values[name] for name in columns[2:]]
         marks = ", ".join("?" for _ in columns)

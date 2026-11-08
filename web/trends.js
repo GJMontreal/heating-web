@@ -1,6 +1,7 @@
 import { get } from "./api.js";
 import { report } from "./alert.js";
 import { legend, lineChart, sparkline, stateStrips } from "./chart.js";
+import { liveController } from "./controller.js";
 import { el } from "./dom.js";
 import { clock, temperature } from "./format.js";
 
@@ -17,6 +18,7 @@ let root = null;
 let timer = null;
 let loading = false;
 let data = null;
+let services = null;
 let failure = null;
 const state = { zone: null, hours: 24, table: false };
 
@@ -31,6 +33,10 @@ function lastValue(values) {
     if (values[index] !== null) return values[index];
   }
   return null;
+}
+
+function side() {
+  return liveController(services).label;
 }
 
 function control(value) {
@@ -69,7 +75,7 @@ function everyNth(zone) {
 }
 
 function tableView(zone) {
-  const head = el("tr", {}, ["Time", "Temperature °C", "Target °C", "Legacy control", "Shadow control"].map((text, index) =>
+  const head = el("tr", {}, ["Time", "Temperature °C", "Target °C", `${side()} control`, "Shadow control"].map((text, index) =>
     el("th", { className: index === 0 ? "" : "num", text })));
   const rows = everyNth(zone).map((index) => el("tr", {}, [
     el("td", { text: new Date(zone.t[index] * 1000).toLocaleString() }),
@@ -108,15 +114,15 @@ function temperatureCard(zone) {
 function heatingCard(zone) {
   const chart = el("div", { className: "chart" });
   const strips = el("div", { className: "chart strips" });
-  const notes = zone.legacy_available ? [] : [el("div", { className: "muted note", text: "No legacy values for this zone. Only the shadow side is shown." })];
+  const notes = zone.legacy_available ? [] : [el("div", { className: "muted note", text: `No ${side().toLowerCase()} values for this zone. Only the shadow side is shown.` })];
   const card = el("div", { className: "card" }, [
     el("h2", { text: `${zone.name} heating` }),
-    legend(zone.legacy_available ? [[BLUE, "Legacy"], [ORANGE, "Shadow"]] : [[ORANGE, "Shadow"]]),
+    legend(zone.legacy_available ? [[BLUE, side()], [ORANGE, "Shadow"]] : [[ORANGE, "Shadow"]]),
     ...notes, chart, strips,
   ]);
   return { card, draw: () => {
     const series = [{ name: "Shadow control value", color: ORANGE, values: zone.sh_ctl, fmt: control }];
-    if (zone.legacy_available) series.unshift({ name: "Legacy control value", color: BLUE, values: zone.ctl, fmt: control });
+    if (zone.legacy_available) series.unshift({ name: `${side()} control value`, color: BLUE, values: zone.ctl, fmt: control });
     lineChart(chart, {
       label: `${zone.name} control value`, times: zone.t, bucket: data.bucket_seconds, start: data.start, end: data.end,
       yMin: 0, yMax: 1, tickFmt: (tick) => tick.toFixed(1), series,
@@ -125,7 +131,7 @@ function heatingCard(zone) {
       { name: "Valve output", color: BLUE, values: zone.out, verb: "open" },
       { name: "End switch", color: INPUT, values: zone.sw, verb: "open" },
       { name: "Boiler", color: BLUE, values: zone.system === "hydronic" ? boilerOn(zone.t) : [] },
-      { name: "Legacy heating state", color: BLUE, values: zone.legacy_available ? zone.hc : [] },
+      { name: `${side()} heating state`, color: BLUE, values: zone.legacy_available ? zone.hc : [] },
       { name: "Shadow heating state", color: BLUE, values: zone.sh_state },
     ].filter((row) => row.values.some((value) => value !== null));
     if (rows.length === 0) {
@@ -174,7 +180,12 @@ async function load() {
   if (loading) return;
   loading = true;
   try {
-    data = await get("/api/history", { hours: state.hours, points: POINTS });
+    const [history, serviceResult] = await Promise.all([
+      get("/api/history", { hours: state.hours, points: POINTS }),
+      get("/api/services").catch(() => null),
+    ]);
+    data = history;
+    services = serviceResult;
     failure = null;
     report("history", null);
     onUpdated(clock(new Date()));

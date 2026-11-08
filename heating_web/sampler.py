@@ -21,6 +21,8 @@ COMMIT_INTERVAL = 60
 PRUNE_INTERVAL = 3600
 SHADOW_FRESH = 60
 PID_FIELDS = ("kp", "ki", "kd", "integral_cap")
+LEGACY_PID = [1.0, 0.01, 0.5, 1.0]
+ACTIVE_SILENT = 300
 
 
 def fresh_shadow(shadow):
@@ -30,14 +32,28 @@ def fresh_shadow(shadow):
     return shadow if age is not None and age <= SHADOW_FRESH else None
 
 
-def profile_of(shadow):
-    pid = None if shadow is None else shadow.get("pid")
+def gains_of(status):
+    pid = None if status is None else status.get("pid")
     if not isinstance(pid, dict):
         return None
     gains = [pid.get(field) for field in PID_FIELDS]
     if any(isinstance(gain, bool) or not isinstance(gain, (int, float)) for gain in gains):
         return None
-    return json.dumps([float(gain) for gain in gains])
+    return [float(gain) for gain in gains]
+
+
+def profile_of(shadow):
+    gains = gains_of(shadow)
+    return None if gains is None else json.dumps(gains)
+
+
+def live_of(active):
+    age = None if active is None else age_of(active.get("time"))
+    if age is not None and age <= SHADOW_FRESH:
+        return json.dumps(["v2"] + (gains_of(active) or []))
+    if age is not None and age <= ACTIVE_SILENT:
+        return None
+    return json.dumps(["legacy"] + LEGACY_PID)
 
 
 def sample_values(zone):
@@ -53,6 +69,7 @@ def sample_values(zone):
         "sh_ctl": None if shadow is None else shadow.get("control_value"),
         "sh_state": None if shadow is None else shadow.get("state"),
         "profile": profile_of(shadow),
+        "live": live_of(zone.active),
     }
 
 

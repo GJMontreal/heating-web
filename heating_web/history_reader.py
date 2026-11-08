@@ -29,7 +29,9 @@ WINDOWS_SQL = (
     " FROM windows WHERE zone = :zone AND start >= :begin AND start < :end ORDER BY start"
 )
 PROFILES_SQL = (
-    "SELECT windows.start, profiles.gains FROM windows LEFT JOIN profiles ON profiles.id = windows.profile"
+    "SELECT windows.start, shadow.gains, live.gains FROM windows"
+    " LEFT JOIN profiles AS shadow ON shadow.id = windows.profile"
+    " LEFT JOIN profiles AS live ON live.id = windows.live"
     " WHERE windows.zone = :zone AND windows.start >= :begin AND windows.start < :end ORDER BY windows.start"
 )
 PID_FIELDS = ("kp", "ki", "kd", "integral_cap")
@@ -65,14 +67,29 @@ def mean(values):
     return round(sum(present) / len(present), FRACTION_DIGITS) if present else None
 
 
-def profile_changes(rows):
+def pid_of(gains):
+    return dict(zip(PID_FIELDS, gains)) if len(gains) == len(PID_FIELDS) else None
+
+
+def changes_of(rows, entry):
     changes = []
     previous = object()
-    for start, gains in rows:
-        if gains != previous:
-            changes.append({"start": start, "pid": None if gains is None else dict(zip(PID_FIELDS, json.loads(gains)))})
-            previous = gains
+    for start, text in rows:
+        if text != previous:
+            changes.append({"start": start, **entry(text)})
+            previous = text
     return changes
+
+
+def shadow_entry(text):
+    return {"pid": None if text is None else pid_of(json.loads(text))}
+
+
+def live_entry(text):
+    if text is None:
+        return {"controller": None, "pid": None}
+    marker, *gains = json.loads(text)
+    return {"controller": marker, "pid": pid_of(gains)}
 
 
 class HistoryReader:
@@ -143,7 +160,8 @@ class HistoryReader:
                     "name": zone.name, "system": zone.system,
                     "legacy_available": any_present(values, LEGACY_WINDOW_COLUMNS),
                     "windows": {"start": [row[0] for row in rows], **values},
-                    "profiles": profile_changes(profiles),
+                    "profiles": changes_of([(row[0], row[1]) for row in profiles], shadow_entry),
+                    "live": changes_of([(row[0], row[2]) for row in profiles], live_entry),
                     "summary": {"windows": len(rows), **{name: mean(values[name]) for name in SUMMARY_COLUMNS}},
                 })
             boiler = connection.execute(BOILER_WINDOWS_SQL, {"begin": begin, "end": end}).fetchall()

@@ -264,3 +264,69 @@ def test_a_window_without_a_profile_has_a_null_one(history):
   history.aggregate(NOW)
 
   assert rows(history, "SELECT profile FROM windows") == [(None,)]
+
+
+V07_SCHEMA = (
+  "CREATE TABLE zones (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)",
+  "CREATE TABLE samples (zone INTEGER NOT NULL, ts INTEGER NOT NULL, temp REAL, target REAL, mode INTEGER,"
+  " ctl REAL, hc INTEGER, boost INTEGER, sh_ctl REAL, sh_state INTEGER, out REAL, sw REAL, profile INTEGER,"
+  " PRIMARY KEY (zone, ts)) WITHOUT ROWID",
+  "CREATE TABLE windows (zone INTEGER NOT NULL, start INTEGER NOT NULL, n INTEGER NOT NULL, temp REAL, target REAL,"
+  " ctl REAL, sh_ctl REAL, on_fraction REAL, sh_on_fraction REAL, out_fraction REAL, sw_fraction REAL, profile INTEGER,"
+  " PRIMARY KEY (zone, start)) WITHOUT ROWID",
+  "CREATE TABLE boiler (ts INTEGER PRIMARY KEY, state INTEGER)",
+  "CREATE TABLE boiler_windows (start INTEGER PRIMARY KEY, n INTEGER NOT NULL, on_fraction REAL)",
+  "CREATE TABLE profiles (id INTEGER PRIMARY KEY, gains TEXT NOT NULL UNIQUE)",
+)
+
+
+@pytest.fixture
+def v07_database(tmp_path):
+  path = str(tmp_path / "v07.sqlite3")
+  connection = sqlite3.connect(path)
+  connection.execute("PRAGMA journal_mode=WAL")
+  for statement in V07_SCHEMA:
+    connection.execute(statement)
+  connection.execute("INSERT INTO zones (name) VALUES ('Bedrooms')")
+  connection.execute("INSERT INTO profiles (gains) VALUES ('[1.0, 0.001, 0.0, 0.3]')")
+  connection.execute("INSERT INTO samples (zone, ts, temp, ctl, profile) VALUES (1, ?, 19.5, 0.4, 1)", (NOW - 100,))
+  connection.execute("INSERT INTO windows (zone, start, n, temp, ctl, profile) VALUES (1, ?, 60, 19.0, 0.3, 1)", (NOW - 3 * WINDOW_SECONDS,))
+  connection.commit()
+  connection.close()
+  return path
+
+
+def test_a_0_7_database_gains_the_live_columns_and_keeps_its_rows(v07_database):
+  migrated = History(v07_database)
+
+  assert rows(migrated, "SELECT ts, temp, ctl, profile, live FROM samples") == [(NOW - 100, 19.5, 0.4, 1, None)]
+  assert rows(migrated, "SELECT start, n, profile, live FROM windows") == [(NOW - 3 * WINDOW_SECONDS, 60, 1, None)]
+  assert rows(migrated, "SELECT gains FROM profiles") == [("[1.0, 0.001, 0.0, 0.3]",)]
+  migrated.close()
+
+
+def test_opening_a_0_7_database_twice_changes_nothing(v07_database):
+  History(v07_database).close()
+  first = sqlite3.connect(v07_database)
+  before = [first.execute(f"SELECT * FROM {table}").fetchall() for table in ("samples", "windows", "profiles")]
+  schema = first.execute("SELECT sql FROM sqlite_master ORDER BY name").fetchall()
+  first.close()
+
+  History(v07_database).close()
+
+  second = sqlite3.connect(v07_database)
+  assert [second.execute(f"SELECT * FROM {table}").fetchall() for table in ("samples", "windows", "profiles")] == before
+  assert second.execute("SELECT sql FROM sqlite_master ORDER BY name").fetchall() == schema
+  second.close()
+
+
+def test_a_window_takes_the_latest_live_marker_and_gains(history):
+  legacy, v2 = '["legacy", 1.0, 0.01, 0.5, 1.0]', '["v2", 1.0, 0.01, 0.5, 1.0]'
+  start = NOW - WINDOW_SECONDS
+  for index in range(6):
+    history.add(start + index * 10, "Bedrooms", ctl=0.5, live=legacy if index < 3 else v2)
+  history.add(start + 60, "Bedrooms", ctl=0.5)
+
+  history.aggregate(NOW)
+
+  assert rows(history, "SELECT live.gains FROM windows JOIN profiles AS live ON live.id = windows.live") == [(v2,)]

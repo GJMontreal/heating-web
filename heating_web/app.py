@@ -138,12 +138,19 @@ class ProfileChange(BaseModel):
     pid: Optional[dict]
 
 
+class LiveChange(BaseModel):
+    start: int
+    controller: Optional[str]
+    pid: Optional[dict]
+
+
 class CompareZone(BaseModel):
     name: str
     system: str
     legacy_available: bool
     windows: WindowColumns
     profiles: List[ProfileChange]
+    live: List[LiveChange]
     summary: WindowSummary
 
 

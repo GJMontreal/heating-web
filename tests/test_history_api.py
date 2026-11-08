@@ -400,3 +400,51 @@ def test_a_zone_with_no_windows_has_no_profile_changes(client, history):
   history.commit()
 
   assert by_name(compare_of(client))["Stairwell"]["profiles"] == []
+
+
+LEGACY_LIVE = '["legacy", 1.0, 0.01, 0.5, 1.0]'
+V2_LIVE = '["v2", 1.0, 0.01, 0.5, 1.0]'
+V2_OWN = '["v2", 2.0, 0.02, 0.0, 0.5]'
+
+
+def test_compare_lists_the_live_controller_and_gains_changes_per_zone(client, history):
+  start = NOW - 5 * WINDOW_SECONDS - 125
+  make_window(history, start, 60, on=0)
+  make_window(history, start + WINDOW_SECONDS, 60, on=0, live=LEGACY_LIVE)
+  make_window(history, start + 2 * WINDOW_SECONDS, 60, on=0, live=LEGACY_LIVE)
+  make_window(history, start + 3 * WINDOW_SECONDS, 60, on=0, live=V2_LIVE)
+  make_window(history, start + 4 * WINDOW_SECONDS, 60, on=0, live=V2_OWN)
+  history.aggregate(NOW)
+  history.commit()
+
+  zone = by_name(compare_of(client))["Bedrooms"]
+
+  first = zone["windows"]["start"][0]
+  default = {"kp": 1.0, "ki": 0.01, "kd": 0.5, "integral_cap": 1.0}
+  assert zone["live"] == [
+    {"start": first, "controller": None, "pid": None},
+    {"start": first + WINDOW_SECONDS, "controller": "legacy", "pid": default},
+    {"start": first + 3 * WINDOW_SECONDS, "controller": "v2", "pid": default},
+    {"start": first + 4 * WINDOW_SECONDS, "controller": "v2", "pid": {"kp": 2.0, "ki": 0.02, "kd": 0.0, "integral_cap": 0.5}},
+  ]
+
+
+def test_a_v2_marker_without_gains_has_a_null_pid(client, history):
+  make_window(history, NOW - 2 * WINDOW_SECONDS - 125, 60, on=0, live='["v2"]')
+  history.aggregate(NOW)
+  history.commit()
+
+  zone = by_name(compare_of(client))["Bedrooms"]
+
+  assert zone["live"] == [{"start": zone["windows"]["start"][0], "controller": "v2", "pid": None}]
+
+
+def test_windows_from_before_the_live_column_have_one_null_entry(client, history):
+  make_window(history, NOW - 2 * WINDOW_SECONDS - 125, 60, on=0)
+  history.aggregate(NOW)
+  history.commit()
+
+  zone = by_name(compare_of(client))["Bedrooms"]
+
+  assert [(change["controller"], change["pid"]) for change in zone["live"]] == [(None, None)]
+  assert by_name(compare_of(client))["Stairwell"]["live"] == []

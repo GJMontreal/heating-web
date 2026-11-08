@@ -187,3 +187,4 @@ svg .cross { stroke: var(--axis); stroke-width: 1; }
 #view-trends > .card { margin-top: 16px; }
 .profile-history { margin: 0; padding-left: 18px; font-size: 13px; }
 .profile-history li { margin-bottom: 6px; }
+.warn-text { color: var(--ink); font-weight: 600; }

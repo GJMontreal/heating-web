@@ -18,8 +18,8 @@ Moved from `boiler-relay/TODO.md`, step 3.
 - [x] Sample redis every 10 seconds into SQLite on the SD card, mounted at `/var/lib/heating_history`. Raw samples for 7 days and 10 minute windows for 14 days, with the legacy keys and the shadow keys. The sampler writes only while the path is a mount point, so it never writes to the eMMC.
 - [ ] Deploy the sampler and check on the device that the card is mounted, the database grows and the service user can write the data folder.
 - [x] Show the shadow's PID profile on Compare, store it per ten minute window and name the live side Legacy or Live (v2) from `/api/services`. The `pid` field of `heating/<mode>/zones/<zone name>` is the contract field.
-- [ ] Store the live controller's own `pid` and which controller was live with each window. Compare labels old windows by the controller live now, and shows only today's live gains.
-- [ ] Name the live side on Trends the same way as on Compare and Live.
+- [x] Store the live controller and its gains per zone with each window, read from `heating/active/zones/<zone name>`, and show the changes on Compare. Name the live side on Trends as on Compare and Live.
+- [ ] Show the means per segment between live changes, so a range that holds a change needs no manual choice of a later range.
 - [ ] Sample the `heating/active` zone keys too, so the Compare page can show the v2 service next to legacy once it runs.
 - [x] Show `mqtt_bridge.service` state and each sensor's age on the Live page. If the bridge dies, every zone calls for no heat after two hours.
 - [x] Include `mqtt_bridge.service` in the Logs page alongside the control services.

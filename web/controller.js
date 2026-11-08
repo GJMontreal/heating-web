@@ -26,3 +26,25 @@ export function livePid(controller, active) {
   if (!controller.v2) return LEGACY_PID;
   return active && active.pid ? active.pid : null;
 }
+
+const MARKER_LABELS = { legacy: "Legacy", v2: "Live (v2)" };
+
+export function markerLabel(marker) {
+  return MARKER_LABELS[marker] || "no record";
+}
+
+function recorded(zone) {
+  return zone.live.filter((change) => change.controller !== null);
+}
+
+export function liveChanged(zone) {
+  const seen = new Set(recorded(zone).map((change) => JSON.stringify([change.controller, change.pid])));
+  return seen.size > 1;
+}
+
+export function rangeController(zones, today) {
+  const markers = new Set(zones.flatMap((zone) => recorded(zone).map((change) => change.controller)));
+  if (markers.size === 0) return { label: today.label, mixed: false };
+  if (markers.size === 1) return { label: markerLabel([...markers][0]), mixed: false };
+  return { label: "Live", mixed: true };
+}

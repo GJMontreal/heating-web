@@ -434,3 +434,62 @@ def test_a_missing_or_malformed_pid_is_stored_as_no_profile(sampler, redis_clien
   sampler.cycle()
 
   assert stored(root, "SELECT profile, sh_ctl FROM samples ORDER BY ts LIMIT 1") == [(None, 0.35)]
+
+
+def live_values(root):
+  return [row[0] for row in stored(root, "SELECT profiles.gains FROM samples JOIN profiles ON profiles.id = samples.live ORDER BY ts")]
+
+
+def run_cycle(sampler, clock):
+  sampler.cycle()
+  clock.advance(COMMIT_INTERVAL)
+  sampler.cycle()
+
+
+def set_active(redis_client, age, **fields):
+  redis_client.set("heating/active/zones/Bedrooms", json.dumps({"control_value": 0.2, "state": 1, "time": stamp(age), **fields}))
+
+
+def test_a_fresh_active_payload_marks_v2_with_its_gains(sampler, redis_client, root, clock):
+  fill(redis_client)
+  set_active(redis_client, 2, pid={"kp": 2, "ki": 0.02, "kd": 0, "integral_cap": 0.5})
+
+  run_cycle(sampler, clock)
+
+  assert live_values(root)[0] == '["v2", 2.0, 0.02, 0.0, 0.5]'
+
+
+def test_a_fresh_active_payload_without_pid_marks_v2_with_no_gains(sampler, redis_client, root, clock):
+  fill(redis_client)
+  set_active(redis_client, 2)
+
+  run_cycle(sampler, clock)
+
+  assert live_values(root)[0] == '["v2"]'
+
+
+def test_no_active_payload_marks_legacy_with_the_defaults(sampler, redis_client, root, clock):
+  fill(redis_client)
+
+  run_cycle(sampler, clock)
+
+  assert live_values(root)[0] == '["legacy", 1.0, 0.01, 0.5, 1.0]'
+
+
+def test_an_active_payload_silent_for_a_short_while_stores_no_marker(sampler, redis_client, root, clock):
+  fill(redis_client)
+  set_active(redis_client, 120, pid={"kp": 2, "ki": 0.02, "kd": 0, "integral_cap": 0.5})
+
+  run_cycle(sampler, clock)
+
+  assert live_values(root) == []
+  assert stored(root, "SELECT live FROM samples ORDER BY ts LIMIT 1") == [(None,)]
+
+
+def test_an_active_payload_silent_for_long_reads_as_legacy_again(sampler, redis_client, root, clock):
+  fill(redis_client)
+  set_active(redis_client, 3600, pid={"kp": 2, "ki": 0.02, "kd": 0, "integral_cap": 0.5})
+
+  run_cycle(sampler, clock)
+
+  assert live_values(root)[0] == '["legacy", 1.0, 0.01, 0.5, 1.0]'
