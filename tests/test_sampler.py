@@ -405,3 +405,32 @@ def test_an_existing_database_is_migrated_when_the_sampler_opens_it(redis_client
 
   assert stored(root, "SELECT ts, ctl, out, sw FROM samples ORDER BY ts")[0] == (1000, 0.4, None, None)
   assert stored(root, "SELECT out, sw FROM samples ORDER BY ts")[-1] == (1.0, 1.0)
+
+
+def stored_profiles(root):
+  return stored(root, "SELECT profiles.gains FROM samples JOIN profiles ON profiles.id = samples.profile ORDER BY ts")
+
+
+def test_the_shadow_profile_is_stored_with_the_sample(sampler, redis_client, root, clock):
+  fill(redis_client)
+  pid = {"kp": 1, "ki": 0.001, "kd": 0, "integral_cap": 0.3}
+  redis_client.set("heating/shadow/zones/Bedrooms", json.dumps({"control_value": 0.35, "state": 1, "pid": pid, "time": stamp(2)}))
+
+  sampler.cycle()
+  clock.advance(COMMIT_INTERVAL)
+  sampler.cycle()
+
+  assert stored_profiles(root)[0] == ("[1.0, 0.001, 0.0, 0.3]",)
+
+
+@pytest.mark.parametrize("pid", [None, "x", {"kp": 1}, {"kp": 1, "ki": "a", "kd": 0, "integral_cap": 1},
+                                 {"kp": True, "ki": 1, "kd": 0, "integral_cap": 1}])
+def test_a_missing_or_malformed_pid_is_stored_as_no_profile(sampler, redis_client, root, clock, pid):
+  fill(redis_client)
+  redis_client.set("heating/shadow/zones/Bedrooms", json.dumps({"control_value": 0.35, "state": 1, "pid": pid, "time": stamp(2)}))
+
+  sampler.cycle()
+  clock.advance(COMMIT_INTERVAL)
+  sampler.cycle()
+
+  assert stored(root, "SELECT profile, sh_ctl FROM samples ORDER BY ts LIMIT 1") == [(None, 0.35)]

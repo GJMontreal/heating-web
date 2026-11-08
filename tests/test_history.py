@@ -234,3 +234,33 @@ def test_boiler_rows_expire_with_the_raw_samples(history):
 
   assert [row[0] for row in rows(history, "SELECT ts FROM boiler")] == [NOW - 10]
   assert [row[0] for row in rows(history, "SELECT start FROM boiler_windows")] == [NOW - 10]
+
+
+def test_an_old_database_gains_the_profile_columns_and_keeps_its_rows(old_database):
+  migrated = History(old_database)
+
+  assert rows(migrated, "SELECT count(*) FROM samples") == [(3,)]
+  assert rows(migrated, "SELECT start, n, profile FROM windows") == [(NOW - 3 * WINDOW_SECONDS, 60, None)]
+  assert rows(migrated, "SELECT count(*) FROM profiles") == [(0,)]
+  migrated.close()
+
+
+def test_a_profile_is_stored_once_and_a_window_takes_the_latest_one(history):
+  first, second = "[1.0, 0.01, 0.5, 1.0]", "[1.0, 0.001, 0.0, 0.3]"
+  start = NOW - WINDOW_SECONDS
+  for index in range(6):
+    history.add(start + index * 10, "Bedrooms", ctl=0.5, profile=first if index < 3 else second)
+  history.add(start + 60, "Bedrooms", ctl=0.5)
+
+  history.aggregate(NOW)
+
+  assert rows(history, "SELECT gains FROM profiles ORDER BY id") == [(first,), (second,)]
+  assert rows(history, "SELECT profiles.gains FROM windows JOIN profiles ON profiles.id = windows.profile") == [(second,)]
+
+
+def test_a_window_without_a_profile_has_a_null_one(history):
+  add_window(history, NOW - WINDOW_SECONDS, [0.2, 0.4])
+
+  history.aggregate(NOW)
+
+  assert rows(history, "SELECT profile FROM windows") == [(None,)]

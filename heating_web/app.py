@@ -133,11 +133,17 @@ class WindowSummary(BaseModel):
     sh_on_fraction: Optional[float]
 
 
+class ProfileChange(BaseModel):
+    start: int
+    pid: Optional[dict]
+
+
 class CompareZone(BaseModel):
     name: str
     system: str
     legacy_available: bool
     windows: WindowColumns
+    profiles: List[ProfileChange]
     summary: WindowSummary
 
 

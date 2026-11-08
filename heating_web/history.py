@@ -1,6 +1,6 @@
 import sqlite3
 
-SAMPLE_COLUMNS = ("temp", "target", "mode", "ctl", "hc", "boost", "sh_ctl", "sh_state", "out", "sw")
+SAMPLE_COLUMNS = ("temp", "target", "mode", "ctl", "hc", "boost", "sh_ctl", "sh_state", "out", "sw", "profile")
 RAW_RETENTION = 7 * 24 * 3600
 WINDOW_RETENTION = 14 * 24 * 3600
 WINDOW_SECONDS = 600
@@ -16,6 +16,7 @@ SCHEMA = (
     " out_fraction REAL, sw_fraction REAL, PRIMARY KEY (zone, start)) WITHOUT ROWID",
     "CREATE TABLE IF NOT EXISTS boiler (ts INTEGER PRIMARY KEY, state INTEGER)",
     "CREATE TABLE IF NOT EXISTS boiler_windows (start INTEGER PRIMARY KEY, n INTEGER NOT NULL, on_fraction REAL)",
+    "CREATE TABLE IF NOT EXISTS profiles (id INTEGER PRIMARY KEY, gains TEXT NOT NULL UNIQUE)",
 )
 
 ADDED_COLUMNS = (
@@ -23,13 +24,18 @@ ADDED_COLUMNS = (
     ("samples", "sw", "REAL"),
     ("windows", "out_fraction", "REAL"),
     ("windows", "sw_fraction", "REAL"),
+    ("samples", "profile", "INTEGER"),
+    ("windows", "profile", "INTEGER"),
 )
 
 AGGREGATE = (
     "INSERT OR REPLACE INTO windows (zone, start, n, temp, target, ctl, sh_ctl, on_fraction, sh_on_fraction,"
-    " out_fraction, sw_fraction)"
+    " out_fraction, sw_fraction, profile)"
     " SELECT zone, (ts / :width) * :width AS start, count(*), avg(temp), avg(target), avg(ctl), avg(sh_ctl),"
-    " avg(hc), avg(sh_state), avg(out), avg(sw)"
+    " avg(hc), avg(sh_state), avg(out), avg(sw),"
+    " (SELECT profile FROM samples AS latest WHERE latest.zone = samples.zone AND latest.profile IS NOT NULL"
+    " AND latest.ts >= (samples.ts / :width) * :width AND latest.ts < (samples.ts / :width) * :width + :width"
+    " ORDER BY latest.ts DESC LIMIT 1)"
     " FROM samples WHERE ts >= :begin AND ts < :end GROUP BY zone, start"
 )
 AGGREGATE_BOILER = (
@@ -49,6 +55,7 @@ class History:
         self.add_missing_columns()
         self.connection.commit()
         self.zone_ids = {}
+        self.profile_ids = {}
 
     def add_missing_columns(self):
         for table, column, kind in ADDED_COLUMNS:
@@ -63,7 +70,16 @@ class History:
             self.zone_ids[name] = row[0]
         return self.zone_ids[name]
 
+    def profile_id(self, gains):
+        if gains not in self.profile_ids:
+            self.connection.execute("INSERT OR IGNORE INTO profiles (gains) VALUES (?)", (gains,))
+            row = self.connection.execute("SELECT id FROM profiles WHERE gains = ?", (gains,)).fetchone()
+            self.profile_ids[gains] = row[0]
+        return self.profile_ids[gains]
+
     def add(self, ts, zone, **values):
+        if values.get("profile") is not None:
+            values["profile"] = self.profile_id(values["profile"])
         columns = ["zone", "ts"] + [name for name in SAMPLE_COLUMNS if values.get(name) is not None]
         arguments = [self.zone_id(zone), int(ts)] + [values[name] for name in columns[2:]]
         marks = ", ".join("?" for _ in columns)

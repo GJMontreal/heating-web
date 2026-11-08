@@ -358,3 +358,45 @@ def test_windows_from_before_the_migration_have_null_pin_means(client, history):
 
   assert zone["windows"]["out_fraction"] == [None]
   assert zone["windows"]["sw_fraction"] == [None]
+
+
+FIRST = "[1.0, 0.01, 0.5, 1.0]"
+SECOND = "[1.0, 0.001, 0.0, 0.3]"
+SECOND_PID = {"kp": 1.0, "ki": 0.001, "kd": 0.0, "integral_cap": 0.3}
+
+
+def test_compare_lists_the_windows_where_the_shadow_profile_changed(client, history):
+  start = NOW - 4 * WINDOW_SECONDS - 125
+  make_window(history, start, 60, on=0)
+  make_window(history, start + WINDOW_SECONDS, 60, on=0, profile=FIRST)
+  make_window(history, start + 2 * WINDOW_SECONDS, 60, on=0, profile=FIRST)
+  make_window(history, start + 3 * WINDOW_SECONDS, 60, on=0, profile=SECOND)
+  history.aggregate(NOW)
+  history.commit()
+
+  zone = by_name(compare_of(client))["Bedrooms"]
+
+  first_start = zone["windows"]["start"][0]
+  assert zone["profiles"] == [
+    {"start": first_start, "pid": None},
+    {"start": first_start + WINDOW_SECONDS, "pid": {"kp": 1.0, "ki": 0.01, "kd": 0.5, "integral_cap": 1.0}},
+    {"start": first_start + 3 * WINDOW_SECONDS, "pid": SECOND_PID},
+  ]
+
+
+def test_windows_from_before_the_migration_have_one_null_profile(client, history):
+  make_window(history, NOW - 2 * WINDOW_SECONDS - 125, 60, on=0)
+  history.aggregate(NOW)
+  history.commit()
+
+  zone = by_name(compare_of(client))["Bedrooms"]
+
+  assert [change["pid"] for change in zone["profiles"]] == [None]
+
+
+def test_a_zone_with_no_windows_has_no_profile_changes(client, history):
+  make_window(history, NOW - 2 * WINDOW_SECONDS - 125, 60, on=0)
+  history.aggregate(NOW)
+  history.commit()
+
+  assert by_name(compare_of(client))["Stairwell"]["profiles"] == []

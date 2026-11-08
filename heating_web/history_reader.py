@@ -1,3 +1,4 @@
+import json
 import math
 import os
 import sqlite3
@@ -27,6 +28,11 @@ WINDOWS_SQL = (
     "SELECT start, n, temp, target, ctl, sh_ctl, on_fraction, sh_on_fraction, out_fraction, sw_fraction"
     " FROM windows WHERE zone = :zone AND start >= :begin AND start < :end ORDER BY start"
 )
+PROFILES_SQL = (
+    "SELECT windows.start, profiles.gains FROM windows LEFT JOIN profiles ON profiles.id = windows.profile"
+    " WHERE windows.zone = :zone AND windows.start >= :begin AND windows.start < :end ORDER BY windows.start"
+)
+PID_FIELDS = ("kp", "ki", "kd", "integral_cap")
 BOILER_SQL = (
     "SELECT (ts / :bucket) * :bucket AS t, avg(state) FROM boiler"
     " WHERE ts >= :begin AND ts < :end GROUP BY t ORDER BY t"
@@ -57,6 +63,16 @@ def any_present(values_by_column, names):
 def mean(values):
     present = [value for value in values if value is not None]
     return round(sum(present) / len(present), FRACTION_DIGITS) if present else None
+
+
+def profile_changes(rows):
+    changes = []
+    previous = object()
+    for start, gains in rows:
+        if gains != previous:
+            changes.append({"start": start, "pid": None if gains is None else dict(zip(PID_FIELDS, json.loads(gains)))})
+            previous = gains
+    return changes
 
 
 class HistoryReader:
@@ -121,10 +137,13 @@ class HistoryReader:
                 rows = [] if zone_id is None else connection.execute(
                     WINDOWS_SQL, {"zone": zone_id, "begin": begin, "end": end}).fetchall()
                 values = columns_of(rows, WINDOW_COLUMNS, 1)
+                profiles = [] if zone_id is None else connection.execute(
+                    PROFILES_SQL, {"zone": zone_id, "begin": begin, "end": end}).fetchall()
                 result.append({
                     "name": zone.name, "system": zone.system,
                     "legacy_available": any_present(values, LEGACY_WINDOW_COLUMNS),
                     "windows": {"start": [row[0] for row in rows], **values},
+                    "profiles": profile_changes(profiles),
                     "summary": {"windows": len(rows), **{name: mean(values[name]) for name in SUMMARY_COLUMNS}},
                 })
             boiler = connection.execute(BOILER_WINDOWS_SQL, {"begin": begin, "end": end}).fetchall()

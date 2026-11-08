@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import sqlite3
@@ -19,6 +20,7 @@ SAMPLE_INTERVAL = 10
 COMMIT_INTERVAL = 60
 PRUNE_INTERVAL = 3600
 SHADOW_FRESH = 60
+PID_FIELDS = ("kp", "ki", "kd", "integral_cap")
 
 
 def fresh_shadow(shadow):
@@ -26,6 +28,16 @@ def fresh_shadow(shadow):
         return None
     age = age_of(shadow.get("time"))
     return shadow if age is not None and age <= SHADOW_FRESH else None
+
+
+def profile_of(shadow):
+    pid = None if shadow is None else shadow.get("pid")
+    if not isinstance(pid, dict):
+        return None
+    gains = [pid.get(field) for field in PID_FIELDS]
+    if any(isinstance(gain, bool) or not isinstance(gain, (int, float)) for gain in gains):
+        return None
+    return json.dumps([float(gain) for gain in gains])
 
 
 def sample_values(zone):
@@ -40,6 +52,7 @@ def sample_values(zone):
         "boost": None if zone.boost is None else int(bool(zone.boost)),
         "sh_ctl": None if shadow is None else shadow.get("control_value"),
         "sh_state": None if shadow is None else shadow.get("state"),
+        "profile": profile_of(shadow),
     }
 
 

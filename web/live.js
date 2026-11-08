@@ -2,6 +2,7 @@ import { get } from "./api.js";
 import { report } from "./alert.js";
 import { el, meter, status } from "./dom.js";
 import { ageText, clock, temperature } from "./format.js";
+import { liveController } from "./controller.js";
 import { ioCard, relayRow } from "./hydronic_io.js";
 
 const REFRESH_MS = 10000;
@@ -71,7 +72,7 @@ function controlCell(text, value, extraClass = "") {
   return el("dd", { className: "value-with-meter" }, [el("span", { text }), meter(value, extraClass)]);
 }
 
-function legacyCell(zone) {
+function liveCell(zone) {
   if (zone.control_value === null) return el("dd", { className: "muted", text: "no value" });
   return controlCell(zone.control_value.toFixed(2), zone.control_value);
 }
@@ -114,7 +115,7 @@ function zoneCard(zone) {
     el("dt", { text: "Last reading" }), el("dd", { text: readingAge(zone) }),
     el("dt", { text: "Target mode" }), el("dd", { text: targetMode(zone.target_state) }),
     el("dt", { text: "Boost" }), flag(zone.boost),
-    el("dt", { text: "Legacy control value" }), legacyCell(zone),
+    el("dt", { text: `${liveController(services).label} control value` }), liveCell(zone),
     el("dt", { text: "Shadow decision" }), shadowCell(zone),
     ...relayRow(io, zone.name),
   ]);

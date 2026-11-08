@@ -185,3 +185,5 @@ svg .cross { stroke: var(--axis); stroke-width: 1; }
 .history-table { width: 100%; }
 #view-compare .card + .card { margin-top: 16px; }
 #view-trends > .card { margin-top: 16px; }
+.profile-history { margin: 0; padding-left: 18px; font-size: 13px; }
+.profile-history li { margin-bottom: 6px; }
