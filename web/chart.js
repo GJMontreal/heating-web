@@ -8,7 +8,7 @@ const TOP = 12;
 const BOTTOM = 28;
 const RAW_INTERVAL = 10;
 const GAP_FACTOR = 3;
-const TICK_STEPS = [600, 1800, 3600, 3 * 3600, 6 * 3600, 12 * 3600, 86400, 2 * 86400];
+const TICK_STEPS = [300, 600, 1800, 3600, 3 * 3600, 6 * 3600, 12 * 3600, 86400, 2 * 86400];
 const MAX_TICKS = 7;
 
 export function niceTicks(min, max, count) {
@@ -201,12 +201,27 @@ export function stateStrips(box, options) {
     text.textContent = row.name;
     nodes.push(text);
     nodes.push(svg("rect", { x: LEFT, y: top + labelHeight, width: WIDTH - LEFT - RIGHT, height: barHeight, rx: 2, fill: "var(--grid)" }));
+    let run = null;
+    const flush = () => {
+      if (run === null) return;
+      const width = Math.max(0.6, (x(run.end) - x(run.begin)) * Math.min(1, run.value));
+      nodes.push(svg("rect", { x: x(run.begin), y: top + labelHeight, width, height: barHeight, fill: row.color }));
+      run = null;
+    };
     times.forEach((time, position) => {
       const value = row.values[position];
-      if (value === null || value === undefined || value <= 0.005) return;
-      const width = Math.max(0.6, (x(time + span) - x(time)) * Math.min(1, value));
-      nodes.push(svg("rect", { x: x(time), y: top + labelHeight, width, height: barHeight, fill: row.color }));
+      if (value === null || value === undefined || value <= 0.005) {
+        flush();
+        return;
+      }
+      if (run !== null && value >= 1 && run.value >= 1 && run.end === time) {
+        run.end = time + span;
+        return;
+      }
+      flush();
+      run = { begin: time, end: time + span, value };
     });
+    flush();
   });
   const height = rows.length * rowHeight + 4;
   const cross = svg("line", { class: "cross", y1: 0, y2: height, display: "none" });

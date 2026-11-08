@@ -23,7 +23,11 @@ function nowOf(zone, io) {
   return seconds(io === null ? zone.active.time : io.time) || seconds(zone.active.time);
 }
 
-function verdict(zone, commanded, confirmed, now) {
+function verdict(zone, commanded, confirmed, now, silent) {
+  if (silent) {
+    mismatchSince.delete(zone.name);
+    return status("crit", "✖", "no report from the relay");
+  }
   if (confirmed === null) {
     mismatchSince.delete(zone.name);
     return status("", "?", "no report");
@@ -52,6 +56,6 @@ export function confirmationRows(zone, io) {
   if (age !== null) text.push(ageText(age));
   return [
     el("dt", { text: "Relay" }),
-    el("dd", {}, [el("span", { text: text.join(", ") }), verdict(zone, commanded, confirmed, now)]),
+    el("dd", {}, [el("span", { text: text.join(", ") }), verdict(zone, commanded, confirmed, now, active.confirmed_silent === true)]),
   ];
 }

@@ -65,31 +65,33 @@ def by_name(data):
 def test_history_returns_columns_with_nulls_passed_through(client, history):
   fill(history, NOW - 100, 3, temp=lambda i: [19.5, None, 20.0][i], ctl=0.4, sh_ctl=0.35, hc=1, sh_state=1)
 
-  zone = by_name(history_of(client, hours=1))["Bedrooms"]
+  data = history_of(client, hours=1)
+  zone = by_name(data)["Bedrooms"]
 
-  assert zone["t"] == [NOW - 100, NOW - 90, NOW - 80]
-  assert zone["temp"] == [19.5, None, 20.0]
+  assert data["t"] == [NOW - 100, NOW - 90, NOW - 80]
+  assert zone["temp"] == [19.5, None, 20]
   assert zone["ctl"] == [0.4, 0.4, 0.4]
   assert zone["sh_ctl"] == [0.35, 0.35, 0.35]
-  assert zone["hc"] == [1.0, 1.0, 1.0]
+  assert zone["hc"] == [1, 1, 1]
 
 
-def test_history_rounds_temperatures_to_two_decimals_and_fractions_to_three(client, history):
+def test_history_rounds_every_series_to_two_decimals_and_whole_numbers_have_no_fraction(client, history):
   fill(history, NOW - 50, 1, temp=21.22000000000002, target=20.123456, ctl=0.123456789, sh_ctl=0.9999999)
 
   zone = by_name(history_of(client, hours=1))["Bedrooms"]
 
   assert (zone["temp"], zone["target"]) == ([21.22], [20.12])
-  assert (zone["ctl"], zone["sh_ctl"]) == ([0.123], [1.0])
+  assert (zone["ctl"], zone["sh_ctl"]) == ([0.12], [1])
+  assert "1.0" not in client.get("/api/history", params={"hours": 1}).text
 
 
-def test_a_zone_without_legacy_values_is_flagged_not_zeroed(client, history):
+def test_a_series_that_is_null_throughout_is_an_empty_list(client, history):
   fill(history, NOW - 100, 3, zone="Stairwell", temp=16.0, sh_ctl=0.2, sh_state=0)
 
   zone = by_name(history_of(client, hours=1))["Stairwell"]
 
   assert zone["legacy_available"] is False
-  assert zone["ctl"] == [None, None, None]
+  assert zone["ctl"] == [] and zone["hc"] == [] and zone["out"] == []
   assert zone["sh_ctl"] == [0.2, 0.2, 0.2]
 
 
@@ -100,9 +102,10 @@ def test_a_zone_with_legacy_values_is_flagged_available(client, history):
 
 
 def test_a_configured_zone_with_no_rows_returns_empty_columns(client, history):
-  zone = by_name(history_of(client, hours=1))["Bedrooms"]
+  data = history_of(client, hours=1)
+  zone = by_name(data)["Bedrooms"]
 
-  assert zone["t"] == [] and zone["temp"] == []
+  assert data["t"] == [] and zone["temp"] == []
   assert zone["legacy_available"] is False
 
 
@@ -122,7 +125,7 @@ def test_a_long_range_is_downsampled_to_about_the_requested_points(client, histo
 
   zone = by_name(data)["Bedrooms"]
   assert data["bucket_seconds"] == 216
-  assert 90 <= len(zone["t"]) <= 101
+  assert 90 <= len(data["t"]) <= 101
   assert all(0 <= value <= 1 for value in zone["ctl"])
 
 
@@ -132,7 +135,7 @@ def test_a_short_range_keeps_the_raw_rows(client, history):
   data = history_of(client, hours=1, points=1000)
 
   assert data["bucket_seconds"] == 1
-  assert len(by_name(data)["Bedrooms"]["t"]) == 30
+  assert len(data["t"]) == 30
 
 
 def test_one_zone_can_be_asked_for(client, history):
@@ -306,8 +309,8 @@ def test_history_returns_the_valve_and_end_switch_columns_with_nulls_for_old_row
 
   zone = by_name(history_of(client, hours=1))["Bedrooms"]
 
-  assert zone["out"] == [None, 1.0, 0.5]
-  assert zone["sw"] == [None, 0.0, 0.333]
+  assert zone["out"] == [None, 1, 0.5]
+  assert zone["sw"] == [None, 0, 0.33]
 
 
 def test_history_returns_the_boiler_series(client, history):
@@ -317,7 +320,8 @@ def test_history_returns_the_boiler_series(client, history):
 
   data = history_of(client, hours=1)
 
-  assert data["boiler"] == {"t": [NOW - 100, NOW - 90, NOW - 80], "on": [1.0, 0.0, None]}
+  assert data["t"] == [NOW - 100, NOW - 90, NOW - 80]
+  assert data["boiler"] == {"on": [1, 0, None]}
 
 
 def test_a_downsampled_boiler_series_is_the_on_fraction_per_bucket(client, history):
@@ -327,7 +331,8 @@ def test_a_downsampled_boiler_series_is_the_on_fraction_per_bucket(client, histo
 
   data = history_of(client, hours=6, points=100)
 
-  assert 90 <= len(data["boiler"]["t"]) <= 101
+  assert 90 <= len(data["t"]) <= 101
+  assert len(data["boiler"]["on"]) == len(data["t"])
   assert all(0.2 <= value <= 0.3 for value in data["boiler"]["on"][1:-1])
 
 
@@ -448,3 +453,36 @@ def test_windows_from_before_the_live_column_have_one_null_entry(client, history
 
   assert [(change["controller"], change["pid"]) for change in zone["live"]] == [(None, None)]
   assert by_name(compare_of(client))["Stairwell"]["live"] == []
+
+
+def test_the_zones_share_one_time_axis_with_nulls_where_a_zone_has_no_row(client, history):
+  fill(history, NOW - 100, 3, ctl=0.4)
+  fill(history, NOW - 90, 2, zone="Stairwell", sh_ctl=0.2)
+
+  data = history_of(client, hours=1)
+
+  assert data["t"] == [NOW - 100, NOW - 90, NOW - 80]
+  assert by_name(data)["Bedrooms"]["ctl"] == [0.4, 0.4, 0.4]
+  assert by_name(data)["Stairwell"]["sh_ctl"] == [None, 0.2, 0.2]
+
+
+def test_minutes_gives_a_range_shorter_than_an_hour_with_raw_rows(client, history):
+  fill(history, NOW - 3000, 300, ctl=0.5)
+
+  data = history_of(client, minutes=30)
+
+  assert data["end"] - data["start"] == 1800
+  assert data["bucket_seconds"] == 1
+  assert len(data["t"]) == 180
+
+
+def test_hours_still_defaults_to_24(client, history):
+  data = history_of(client)
+
+  assert data["end"] - data["start"] == 24 * 3600
+
+
+@pytest.mark.parametrize("params", [{"minutes": 4}, {"minutes": 10081}, {"hours": 169},
+                                    {"hours": 1, "minutes": 30}])
+def test_out_of_range_or_doubled_history_ranges_are_rejected(client, params):
+  assert client.get("/api/history", params=params).status_code == 422

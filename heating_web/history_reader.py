@@ -14,6 +14,9 @@ MAX_WINDOW_HOURS = 336
 RAW_INTERVAL = 10
 SERIES_COLUMNS = ("temp", "target", "ctl", "sh_ctl", "hc", "sh_state", "out", "sw")
 WINDOW_COLUMNS = ("n", "temp", "target", "ctl", "sh_ctl", "on_fraction", "sh_on_fraction", "out_fraction", "sw_fraction")
+SERIES_DIGITS = 2
+MAX_MINUTES = MAX_HOURS * 60
+MIN_MINUTES = 5
 ROUNDING = {"temp": TEMPERATURE_DIGITS, "target": TEMPERATURE_DIGITS}
 LEGACY_COLUMNS = ("ctl", "hc")
 LEGACY_WINDOW_COLUMNS = ("ctl", "on_fraction")
@@ -52,6 +55,21 @@ def rounded(column, value):
     if value is None:
         return None
     return round(value, ROUNDING.get(column, FRACTION_DIGITS))
+
+
+def compact(value):
+    if value is None:
+        return None
+    digits = round(value, SERIES_DIGITS)
+    return int(digits) if digits == int(digits) else digits
+
+
+def aligned(rows, axis, offset):
+    position = {time: index for index, time in enumerate(axis)}
+    values = [None] * len(axis)
+    for row in rows:
+        values[position[row[0]]] = compact(row[offset])
+    return values if any(value is not None for value in values) else []
 
 
 def columns_of(rows, names, offset):
@@ -122,24 +140,25 @@ class HistoryReader:
         row = connection.execute("SELECT id FROM zones WHERE name = ?", (name,)).fetchone()
         return None if row is None else row[0]
 
-    def series(self, zones, hours, points):
+    def series(self, zones, seconds, points):
         end = int(self.epoch())
-        begin = end - hours * 3600
+        begin = end - seconds
         bucket = 1 if end - begin <= points * RAW_INTERVAL else math.ceil((end - begin) / points)
 
         def work(connection):
-            result = []
+            fetched = []
             for zone in zones:
                 zone_id = self.zone_id(connection, zone.name)
-                rows = [] if zone_id is None else connection.execute(
-                    SERIES_SQL, {"bucket": bucket, "zone": zone_id, "begin": begin, "end": end}).fetchall()
-                values = columns_of(rows, SERIES_COLUMNS, 1)
-                result.append({"name": zone.name, "system": zone.system,
-                               "legacy_available": any_present(values, LEGACY_COLUMNS),
-                               "t": [row[0] for row in rows], **values})
+                fetched.append([] if zone_id is None else connection.execute(
+                    SERIES_SQL, {"bucket": bucket, "zone": zone_id, "begin": begin, "end": end}).fetchall())
             boiler = connection.execute(BOILER_SQL, {"bucket": bucket, "begin": begin, "end": end}).fetchall()
-            return {"zones": result, "boiler": {"t": [row[0] for row in boiler],
-                                                "on": [rounded("on", row[1]) for row in boiler]}}
+            axis = sorted({row[0] for rows in fetched for row in rows} | {row[0] for row in boiler})
+            result = []
+            for zone, rows in zip(zones, fetched):
+                values = {name: aligned(rows, axis, 1 + index) for index, name in enumerate(SERIES_COLUMNS)}
+                result.append({"name": zone.name, "system": zone.system,
+                               "legacy_available": any_present(values, LEGACY_COLUMNS), **values})
+            return {"t": axis, "zones": result, "boiler": {"on": aligned(boiler, axis, 1)}}
 
         return {"start": begin, "end": end, "bucket_seconds": bucket, **self.query(work)}
 

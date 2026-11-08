@@ -6,7 +6,14 @@ import { el } from "./dom.js";
 import { clock, temperature } from "./format.js";
 
 const REFRESH_MS = 60000;
-const RANGES = [["6 hours", 6], ["24 hours", 24], ["7 days", 168]];
+const RANGES = [
+  ["30 minutes", { minutes: 30 }],
+  ["1 hour", { hours: 1 }],
+  ["6 hours", { hours: 6 }],
+  ["24 hours", { hours: 24 }],
+  ["7 days", { hours: 168 }],
+];
+const SERIES = ["temp", "target", "ctl", "sh_ctl", "hc", "sh_state", "out", "sw"];
 const POINTS = 360;
 const TABLE_ROWS = 24;
 const BLUE = "var(--s1)";
@@ -20,7 +27,7 @@ let loading = false;
 let data = null;
 let services = null;
 let failure = null;
-const state = { zone: null, hours: 24, table: false };
+const state = { zone: null, range: "24 hours", table: false };
 
 function chip(text, pressed, onClick) {
   const node = el("button", { className: "chip", text, attrs: { type: "button", "aria-pressed": String(pressed) } });
@@ -64,9 +71,14 @@ function sparkCard(zone) {
   return card;
 }
 
-function boilerOn(times) {
-  const byTime = new Map(data.boiler.t.map((time, index) => [time, data.boiler.on[index]]));
-  return times.map((time) => (byTime.has(time) ? byTime.get(time) : null));
+function expand(history) {
+  const blank = () => history.t.map(() => null);
+  for (const zone of history.zones) {
+    zone.t = history.t;
+    for (const name of SERIES) if (zone[name].length === 0) zone[name] = blank();
+  }
+  if (history.boiler.on.length === 0) history.boiler.on = blank();
+  return history;
 }
 
 function everyNth(zone) {
@@ -130,7 +142,7 @@ function heatingCard(zone) {
     const rows = [
       { name: "Valve output", color: BLUE, values: zone.out, verb: "open" },
       { name: "End switch", color: INPUT, values: zone.sw, verb: "open" },
-      { name: "Boiler", color: BLUE, values: zone.system === "hydronic" ? boilerOn(zone.t) : [] },
+      { name: "Boiler", color: BLUE, values: zone.system === "hydronic" ? data.boiler.on : [] },
       { name: `${side()} heating state`, color: BLUE, values: zone.legacy_available ? zone.hc : [] },
       { name: "Shadow heating state", color: BLUE, values: zone.sh_state },
     ].filter((row) => row.values.some((value) => value !== null));
@@ -154,7 +166,7 @@ function render() {
   const zone = data.zones.find((entry) => entry.name === state.zone);
   const toolbar = el("div", { className: "toolbar" }, [
     el("span", { className: "label", text: "Range" }),
-    ...RANGES.map(([text, hours]) => chip(text, hours === state.hours, () => { state.hours = hours; load(); })),
+    ...RANGES.map(([text]) => chip(text, text === state.range, () => { state.range = text; load(); })),
     el("span", { className: "sep" }),
     chip("Table view", state.table, () => { state.table = !state.table; render(); }),
   ]);
@@ -181,10 +193,10 @@ async function load() {
   loading = true;
   try {
     const [history, serviceResult] = await Promise.all([
-      get("/api/history", { hours: state.hours, points: POINTS }),
+      get("/api/history", { ...RANGES.find(([text]) => text === state.range)[1], points: POINTS }),
       get("/api/services").catch(() => null),
     ]);
-    data = history;
+    data = expand(history);
     services = serviceResult;
     failure = null;
     report("history", null);

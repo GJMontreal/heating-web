@@ -10,7 +10,7 @@ from redis.exceptions import RedisError
 
 from heating_web.contract import SERVICE_NAME, VERSIONS_PREFIX
 from heating_web.gpio import GPIO_ROOT, SysfsReader
-from heating_web.history_reader import MAX_HOURS, MAX_WINDOW_HOURS, HistoryReader, HistoryUnavailable
+from heating_web.history_reader import MAX_HOURS, MAX_MINUTES, MAX_WINDOW_HOURS, MIN_MINUTES, HistoryReader, HistoryUnavailable
 from heating_web.io_state import IoView, utc_now
 from heating_web.journal import JournalError, read_journal
 from heating_web.live_state import ZoneLive, read_zone
@@ -76,34 +76,6 @@ class IoState(BaseModel):
     time: str
     boiler: Optional[BoilerIo]
     zones: List[ZoneIo]
-
-
-class SeriesZone(BaseModel):
-    name: str
-    system: str
-    legacy_available: bool
-    t: List[int]
-    temp: List[Optional[float]]
-    target: List[Optional[float]]
-    ctl: List[Optional[float]]
-    sh_ctl: List[Optional[float]]
-    hc: List[Optional[float]]
-    sh_state: List[Optional[float]]
-    out: List[Optional[float]]
-    sw: List[Optional[float]]
-
-
-class BoilerSeries(BaseModel):
-    t: List[int]
-    on: List[Optional[float]]
-
-
-class HistoryState(BaseModel):
-    start: int
-    end: int
-    bucket_seconds: int
-    zones: List[SeriesZone]
-    boiler: BoilerSeries
 
 
 class WindowColumns(BaseModel):
@@ -201,11 +173,15 @@ def create_app(zones, redis, own_version, unit_state=unit_state, read_journal=re
     def io():
         return io_view.snapshot()
 
-    @app.get("/api/history", response_model=HistoryState)
-    def history_series(zone: Optional[str] = None, hours: int = Query(24, ge=1, le=MAX_HOURS),
+    @app.get("/api/history")
+    def history_series(zone: Optional[str] = None, hours: Optional[int] = Query(None, ge=1, le=MAX_HOURS),
+                       minutes: Optional[int] = Query(None, ge=MIN_MINUTES, le=MAX_MINUTES),
                        points: int = Query(360, ge=10, le=1000)):
+        if hours is not None and minutes is not None:
+            raise HTTPException(status_code=422, detail="give hours or minutes, not both")
+        seconds = minutes * 60 if minutes is not None else (24 if hours is None else hours) * 3600
         try:
-            return history.series(chosen(zone), hours, points)
+            return history.series(chosen(zone), seconds, points)
         except HistoryUnavailable as error:
             raise unavailable(error)
 

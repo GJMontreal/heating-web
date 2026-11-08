@@ -29,9 +29,10 @@ Moved from `boiler-relay/TODO.md`, step 3.
 - [ ] Check the on-fraction against real heat. Every sample so far has the output off, so the on-fraction of a real window has only been tested with built rows. Boost one zone for about 12 minutes and compare the Compare page with the Live page.
 - [x] Sample the valve and end switch pin levels and the boiler pin, so Trends shows the output and input strips from the mockup.
 - [ ] Check the pin strips on the device after the sampler restarts: the migration keeps the old rows and the new columns fill from the first cycle.
+- [x] Trends ranges of 30 minutes and 1 hour, and a smaller `/api/history` response: one shared time axis, empty lists for empty series, 2 decimals and no `.0`.
 - [ ] Compress the larger API responses if the BeagleBone's link needs it. A 14 day Compare answer is about 115 kB.
 - [ ] Live page fields the mockup shows and the API cannot supply yet. Each needs new API fields from the control service's published state:
   - valve open minutes in the duty window
   - sensor battery and humidity
   - the electric relay's last command
-- [x] Show the electric relay's confirmed state on the Live page from the optional `confirmed` and `confirmed_time` fields. Check the field names against the parent contract when `boiler-relay` publishes them.
+- [x] Show the electric relay's confirmed state on the Live page from the optional `confirmed`, `confirmed_time` and `confirmed_silent` fields. Check the field names against the parent contract when `boiler-relay` publishes them.
