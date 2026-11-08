@@ -10,6 +10,7 @@ from heating_web.app import create_app
 from heating_web.gpio import GPIO_ROOT
 from heating_web.history_reader import HistoryReader
 from heating_web.sampler import HISTORY_ROOT, Sampler
+from heating_web.site import DEFAULT_SITE_FILE, SiteName
 from heating_web.version import build_entry, describe, publish_version
 from heating_web.zones import DEFAULT_ZONES, ZonesError, load_config
 
@@ -23,6 +24,7 @@ def parse_arguments(argv=None):
     parser.add_argument("--zones", default=DEFAULT_ZONES, help="the control service's system_config.json")
     parser.add_argument("--gpio-root", default=GPIO_ROOT, help="the sysfs gpio directory, read only")
     parser.add_argument("--history-root", default=HISTORY_ROOT, help="the history mount point, written only while mounted")
+    parser.add_argument("--site-file", default=DEFAULT_SITE_FILE, help="optional JSON file with the site name, read when it changes")
     parser.add_argument("--redis-host", default="localhost")
     parser.add_argument("--redis-port", type=int, default=6379)
     parser.add_argument("--version", action="version", version=describe())
@@ -53,7 +55,8 @@ def main(argv=None):
     sampler.start()
     try:
         uvicorn.run(create_app(config.zones, redis, entry, boiler=config.boiler, gpio_root=args.gpio_root,
-                               history=HistoryReader(args.history_root)),
+                               history=HistoryReader(args.history_root),
+                               site=SiteName(args.site_file, config.site_name)),
                     host=args.host, port=args.port)
     finally:
         sampler.stop()

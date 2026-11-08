@@ -8,7 +8,7 @@ BOILER_ACTIVE_LOW = True
 Output = namedtuple("Output", ["type", "pin", "end_switch"])
 Zone = namedtuple("Zone", ["name", "sensor_path", "system", "outputs", "active_low"], defaults=(None, None))
 Boiler = namedtuple("Boiler", ["output_gpio", "active_low"])
-Config = namedtuple("Config", ["zones", "boiler"])
+Config = namedtuple("Config", ["zones", "boiler", "site_name"], defaults=(None,))
 
 
 class ZonesError(Exception):
@@ -51,4 +51,4 @@ def load_config(path):
         zones = [read_zone(zone) for zone in data["zones"]]
     except (KeyError, TypeError, AttributeError) as error:
         raise ZonesError(f"{path} has no usable zones list: {error!r}")
-    return Config(zones, read_boiler(data))
+    return Config(zones, read_boiler(data), data.get("site_name"))

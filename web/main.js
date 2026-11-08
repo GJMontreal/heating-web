@@ -2,6 +2,7 @@ import { startLive, stopLive } from "./live.js";
 import { startCompare, stopCompare } from "./compare.js";
 import { startLogs, stopLogs } from "./logs.js";
 import { startTrends, stopTrends } from "./trends.js";
+import { startSite } from "./site.js";
 import { startVersions } from "./versions.js";
 
 const VIEWS = {
@@ -48,5 +49,6 @@ function setTheme(dark) {
 theme.addEventListener("click", () => setTheme(document.documentElement.dataset.theme !== "dark"));
 setTheme(matchMedia("(prefers-color-scheme: dark)").matches);
 window.addEventListener("hashchange", route);
+startSite();
 startVersions();
 route();

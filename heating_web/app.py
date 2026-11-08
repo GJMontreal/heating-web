@@ -14,6 +14,7 @@ from heating_web.history_reader import MAX_HOURS, MAX_MINUTES, MAX_WINDOW_HOURS,
 from heating_web.io_state import IoView, utc_now
 from heating_web.journal import JournalError, read_journal
 from heating_web.live_state import ZoneLive, read_zone
+from heating_web.site import SiteName
 
 SERVICES = ("boiler_relay", "boiler_relay_v2", "boiler_relay_v2_shadow", "mqtt_bridge")
 SYSTEMCTL_TIMEOUT = 5
@@ -133,6 +134,10 @@ class CompareState(BaseModel):
     boiler: BoilerWindows
 
 
+class SiteState(BaseModel):
+    site_name: str
+
+
 class ServiceState(BaseModel):
     name: str
     state: str
@@ -149,10 +154,11 @@ def unit_state(name):
 
 
 def create_app(zones, redis, own_version, unit_state=unit_state, read_journal=read_journal, web_dir=WEB_DIR,
-               boiler=None, gpio_root=GPIO_ROOT, clock=utc_now, history=None):
+               boiler=None, gpio_root=GPIO_ROOT, clock=utc_now, history=None, site=None):
     app = FastAPI(title="heating_web")
     io_view = IoView(zones, boiler, SysfsReader(gpio_root), clock)
     history = history or HistoryReader()
+    site = site or SiteName()
 
     def chosen(zone):
         if zone is None:
@@ -191,6 +197,10 @@ def create_app(zones, redis, own_version, unit_state=unit_state, read_journal=re
             return history.windows(chosen(zone), hours)
         except HistoryUnavailable as error:
             raise unavailable(error)
+
+    @app.get("/api/site", response_model=SiteState)
+    def site_name():
+        return SiteState(site_name=site.name())
 
     @app.get("/api/services", response_model=List[ServiceState])
     def services():

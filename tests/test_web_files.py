@@ -31,3 +31,11 @@ def test_requests_are_get_only(path):
   methods = re.findall(r"method:\s*\"(\w+)\"", path.read_text())
 
   assert set(methods) <= {"GET"}
+
+
+def test_the_page_names_itself_from_the_site_route_with_text_content():
+  script = (WEB / "site.js").read_text()
+
+  assert "/api/site" in script
+  assert "document.title = name" in script
+  assert "heading.textContent = name" in script

@@ -12,6 +12,7 @@ It is deployed and versioned on its own, apart from the control service in `boil
 | `GET /api/io` | The physical pin levels. `boiler` is `{pin, exported, level, active, on}`. Each hydronic zone lists `outputs` (`pin`, `exported`, `level`, `active`, `since`, `end_switch`) and `end_switches` (`pin`, `exported`, `level`, `high`, `since`). An electric zone has one output, `{type: "mqtt", state: "unconfirmed"}`, and no end switches. `time` is the server clock, so a client measures durations against it. See Pin levels |
 | `GET /api/history?zone=&hours=&minutes=&points=` | Samples for Trends from the history database. `t` is one shared list of epoch seconds for every zone and the boiler. Each zone has columns aligned to `t`: `temp`, `target`, `ctl` (legacy control value), `sh_ctl` (shadow), `hc` (legacy heating state), `sh_state`, `out` (valve output open fraction) and `sw` (end switch open fraction). A column with no value in the range is an empty list. A zone has no row for a time where it has no sample, which reads as null. `boiler` is `{on}`, aligned to `t`. Every number is rounded to 2 decimals and a whole number carries no fraction, so 1 and not 1.0. `hours` is 1 to 168 and defaults to 24. `minutes` is 5 to 10080 and replaces `hours`, and giving both is a 422. Ranges longer than `points` samples at the 10 second interval are averaged into buckets, `bucket_seconds` wide, and a shorter range returns the raw samples with `bucket_seconds` 1. `points` is 10 to 1000 and defaults to 360. Nulls are real gaps. `legacy_available` is false for a zone with no legacy values in the range, such as the electric zone |
 | `GET /api/compare?zone=&hours=` | The 10 minute window rows per zone for Compare, legacy and shadow side by side, with a `summary` of the unweighted window means and the same `legacy_available` flag. `profiles` lists the windows where the shadow's PID profile changed, as `{start, pid}` with `pid` null for a window with no profile. The first entry is the first window in the range. `live` lists the changes of the live side the same way, as `{start, controller, pid}` with `controller` `legacy`, `v2` or null and `pid` null when v2 published no gains. The window columns include `out_fraction` and `sw_fraction`, and a `boiler` object has the boiler windows. `hours` is 1 to 336 and defaults to 24 |
+| `GET /api/site` | `site_name`, the title of every page. See Site name |
 | `GET /api/services` | `systemctl is-active` for `boiler_relay`, `boiler_relay_v2`, `boiler_relay_v2_shadow` and `mqtt_bridge` |
 | `GET /api/logs?unit=&lines=` | Journal entries for those units. `lines` defaults to 100 and is capped at 500. A failing `journalctl` gives 503 |
 | `GET /api/versions` | `service`, `version`, `commit` and `time` for every `heating/versions/*` key, plus this service's own entry. It answers with only its own entry when redis is down |
@@ -21,6 +22,16 @@ The API has no write routes. `/api/compare` rounds temperatures to 2 decimals an
 ## Redis contract notes
 
 The service reads `pid` (`kp`, `ki`, `kd`, `integral_cap`) in `heating/<mode>/zones/<zone name>`. `heating/active` is the running v2 service and `heating/shadow` is the shadow. `/api/live` passes the keys through unchanged. An electric zone's `heating/active/zones/<zone name>` may also carry `confirmed` (the relay's last reported Power, 0, 1 or null), `confirmed_time` (UTC ISO 8601 with a Z suffix, or null) and `confirmed_silent` (true once a command has gone unconfirmed for 5 seconds). The Live page treats all three as optional and the history does not store them. The sampler stores the shadow's `pid` with each sample. The legacy controller publishes no status keys, so the UI treats legacy as the defaults. The sampler also stores the live controller and gains per zone, taken from the `time` and `pid` of `heating/active/zones/<zone name>`, with no call to systemd.
+
+## Site name
+
+The header and the page title show a site name. The service reads it from the first usable source:
+
+1. The device file `/etc/heating/site.json`, `{"site_name": "Example Site"}`, or the path of `--site-file`. The service reads it again when its modification time changes, so an edit needs no restart. Deploys never touch `/etc`.
+2. The top-level `site_name` of the control service's `system_config.json`, if present.
+3. `Heating`.
+
+A usable name is a string of 1 to 60 characters after stripping, with no control characters. A bad value falls through to the next source and logs one warning without the value. A missing or unreadable file never fails a request. The page starts with `Heating` and replaces it with the answer of `GET /api/site` through `textContent`, and asks again every 60 seconds. The real name belongs only in the device file and never in a tracked file.
 
 ## Pin levels
 
@@ -70,6 +81,7 @@ python -m heating_web --zones /path/to/system_config.json
 | `--zones` | `/var/lib/boiler_relay_v2/config/system_config.json` |
 | `--gpio-root` | `/sys/class/gpio` |
 | `--history-root` | `/var/lib/heating_history` |
+| `--site-file` | `/etc/heating/site.json` |
 | `--redis-host` | `localhost` |
 | `--redis-port` | `6379` |
 
