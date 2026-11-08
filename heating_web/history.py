@@ -17,6 +17,8 @@ SCHEMA = (
     "CREATE TABLE IF NOT EXISTS boiler (ts INTEGER PRIMARY KEY, state INTEGER)",
     "CREATE TABLE IF NOT EXISTS boiler_windows (start INTEGER PRIMARY KEY, n INTEGER NOT NULL, on_fraction REAL)",
     "CREATE TABLE IF NOT EXISTS profiles (id INTEGER PRIMARY KEY, gains TEXT NOT NULL UNIQUE)",
+    "CREATE TABLE IF NOT EXISTS readings (zone INTEGER NOT NULL, ts INTEGER NOT NULL, value REAL NOT NULL,"
+    " PRIMARY KEY (zone, ts)) WITHOUT ROWID",
 )
 
 ADDED_COLUMNS = (
@@ -59,12 +61,32 @@ class History:
         self.connection = sqlite3.connect(path, timeout=5)
         self.connection.execute("PRAGMA journal_mode=WAL")
         self.connection.execute("PRAGMA synchronous=NORMAL")
+        had_readings = self.has_table("readings")
         for statement in SCHEMA:
             self.connection.execute(statement)
         self.add_missing_columns()
+        if not had_readings:
+            self.backfill_readings()
         self.connection.commit()
         self.zone_ids = {}
         self.profile_ids = {}
+
+    def has_table(self, name):
+        row = self.connection.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)).fetchone()
+        return row is not None
+
+    def backfill_readings(self):
+        rows = []
+        zone, previous = None, None
+        for sample_zone, ts, temp in self.connection.execute("SELECT zone, ts, temp FROM samples ORDER BY zone, ts"):
+            if sample_zone != zone:
+                zone, previous = sample_zone, None
+            if temp is None:
+                previous = None
+            elif temp != previous:
+                rows.append((zone, ts, temp))
+                previous = temp
+        self.connection.executemany("INSERT OR IGNORE INTO readings (zone, ts, value) VALUES (?, ?, ?)", rows)
 
     def add_missing_columns(self):
         for table, column, kind in ADDED_COLUMNS:
@@ -95,6 +117,10 @@ class History:
         marks = ", ".join("?" for _ in columns)
         self.connection.execute(f"INSERT OR REPLACE INTO samples ({', '.join(columns)}) VALUES ({marks})", arguments)
 
+    def add_reading(self, zone, reported, value):
+        self.connection.execute("INSERT OR IGNORE INTO readings (zone, ts, value) VALUES (?, ?, ?)",
+                                (self.zone_id(zone), int(reported), value))
+
     def add_boiler(self, ts, state):
         self.connection.execute("INSERT OR REPLACE INTO boiler (ts, state) VALUES (?, ?)", (int(ts), state))
 
@@ -118,6 +144,7 @@ class History:
     def prune(self, now):
         self.connection.execute("DELETE FROM samples WHERE ts < ?", (int(now) - RAW_RETENTION,))
         self.connection.execute("DELETE FROM boiler WHERE ts < ?", (int(now) - RAW_RETENTION,))
+        self.connection.execute("DELETE FROM readings WHERE ts < ?", (int(now) - WINDOW_RETENTION,))
         self.connection.execute("DELETE FROM windows WHERE start < ?", (int(now) - WINDOW_RETENTION,))
         self.connection.execute("DELETE FROM boiler_windows WHERE start < ?", (int(now) - WINDOW_RETENTION,))
 

@@ -493,3 +493,79 @@ def test_an_active_payload_silent_for_long_reads_as_legacy_again(sampler, redis_
   run_cycle(sampler, clock)
 
   assert live_values(root)[0] == '["legacy", 1.0, 0.01, 0.5, 1.0]'
+
+
+def readings(root):
+  return stored(root, "SELECT zone, ts, value FROM readings ORDER BY ts")
+
+
+def set_reading(redis_client, value, age):
+  redis_client.set(f"{SENSOR}/current_temperature", json.dumps({"value": value, "time": stamp(age)}))
+
+
+def epoch(age):
+  return int((datetime.now(timezone.utc) - timedelta(seconds=age)).timestamp())
+
+
+def test_a_report_is_recorded_with_its_own_time_and_value(sampler, redis_client, root, clock):
+  fill(redis_client)
+  set_reading(redis_client, 19.5, 40)
+
+  run_cycle(sampler, clock)
+
+  assert readings(root) == [(1, pytest.approx(epoch(40), abs=2), 19.5)]
+
+
+def test_the_same_report_is_not_recorded_twice(sampler, redis_client, root, clock):
+  fill(redis_client)
+  set_reading(redis_client, 19.5, 40)
+
+  for _ in range(4):
+    sampler.cycle()
+    clock.advance(SAMPLE_INTERVAL)
+  clock.advance(COMMIT_INTERVAL)
+  sampler.cycle()
+
+  assert len(readings(root)) == 1
+
+
+def test_a_report_with_an_unchanged_value_and_a_new_time_is_recorded(sampler, redis_client, root, clock):
+  fill(redis_client)
+  set_reading(redis_client, 19.5, 40)
+  sampler.cycle()
+  set_reading(redis_client, 19.5, 5)
+  sampler.cycle()
+  clock.advance(COMMIT_INTERVAL)
+  sampler.cycle()
+
+  assert [row[2] for row in readings(root)] == [19.5, 19.5]
+  assert readings(root)[1][1] - readings(root)[0][1] >= 30
+
+
+def test_a_stale_reading_is_not_recorded(sampler, redis_client, root, clock):
+  fill(redis_client)
+  set_reading(redis_client, 19.5, 3 * 3600)
+
+  run_cycle(sampler, clock)
+
+  assert readings(root) == []
+
+
+def test_a_reading_that_cannot_be_parsed_is_not_recorded(sampler, redis_client, root, clock):
+  fill(redis_client)
+  redis_client.set(f"{SENSOR}/current_temperature", json.dumps({"value": 19.5, "time": "yesterday"}))
+
+  run_cycle(sampler, clock)
+
+  assert readings(root) == []
+
+
+def test_a_restart_does_not_record_the_same_report_again(redis_client, root, clock, mounted):
+  fill(redis_client)
+  set_reading(redis_client, 19.5, 40)
+  for _ in range(2):
+    again = Sampler(redis_client, ZONES, root=str(root), is_mounted=lambda path: True, clock=clock)
+    run_cycle(again, clock)
+    again.release()
+
+  assert len(readings(root)) == 1

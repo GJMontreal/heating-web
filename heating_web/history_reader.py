@@ -38,6 +38,8 @@ PROFILES_SQL = (
     " WHERE windows.zone = :zone AND windows.start >= :begin AND windows.start < :end ORDER BY windows.start"
 )
 PID_FIELDS = ("kp", "ki", "kd", "integral_cap")
+READINGS_SQL = "SELECT ts, value FROM readings WHERE zone = :zone AND ts >= :begin AND ts < :end ORDER BY ts"
+READING_BEFORE_SQL = "SELECT ts, value FROM readings WHERE zone = :zone AND ts < :begin ORDER BY ts DESC LIMIT 1"
 BOILER_SQL = (
     "SELECT (ts / :bucket) * :bucket AS t, avg(state) FROM boiler"
     " WHERE ts >= :begin AND ts < :end GROUP BY t ORDER BY t"
@@ -140,6 +142,15 @@ class HistoryReader:
         row = connection.execute("SELECT id FROM zones WHERE name = ?", (name,)).fetchone()
         return None if row is None else row[0]
 
+    def readings(self, connection, zone, begin, end):
+        zone_id = self.zone_id(connection, zone.name)
+        has_table = connection.execute("SELECT 1 FROM sqlite_master WHERE name = 'readings'").fetchone()
+        if zone_id is None or has_table is None:
+            return []
+        arguments = {"zone": zone_id, "begin": begin, "end": end}
+        before = connection.execute(READING_BEFORE_SQL, arguments).fetchall()
+        return before + connection.execute(READINGS_SQL, arguments).fetchall()
+
     def series(self, zones, seconds, points):
         end = int(self.epoch())
         begin = end - seconds
@@ -151,13 +162,15 @@ class HistoryReader:
                 zone_id = self.zone_id(connection, zone.name)
                 fetched.append([] if zone_id is None else connection.execute(
                     SERIES_SQL, {"bucket": bucket, "zone": zone_id, "begin": begin, "end": end}).fetchall())
+            readings = [self.readings(connection, zone, begin, end) for zone in zones]
             boiler = connection.execute(BOILER_SQL, {"bucket": bucket, "begin": begin, "end": end}).fetchall()
             axis = sorted({row[0] for rows in fetched for row in rows} | {row[0] for row in boiler})
             result = []
-            for zone, rows in zip(zones, fetched):
+            for zone, rows, reported in zip(zones, fetched, readings):
                 values = {name: aligned(rows, axis, 1 + index) for index, name in enumerate(SERIES_COLUMNS)}
                 result.append({"name": zone.name, "system": zone.system,
-                               "legacy_available": any_present(values, LEGACY_COLUMNS), **values})
+                               "legacy_available": any_present(values, LEGACY_COLUMNS), **values,
+                               "readings": {"t": [row[0] for row in reported], "v": [compact(row[1]) for row in reported]}})
             return {"t": axis, "zones": result, "boiler": {"on": aligned(boiler, axis, 1)}}
 
         return {"start": begin, "end": end, "bucket_seconds": bucket, **self.query(work)}

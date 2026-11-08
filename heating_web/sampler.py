@@ -10,7 +10,7 @@ from redis.exceptions import RedisError
 from heating_web.gpio import GPIO_ROOT, SysfsReader
 from heating_web.history import DATABASE, History
 from heating_web.io_state import IoView
-from heating_web.live_state import age_of, read_zone
+from heating_web.live_state import age_of, epoch_of, read_zone
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +56,14 @@ def live_of(active):
     return json.dumps(["legacy"] + LEGACY_PID)
 
 
+def report_of(zone):
+    reading = zone.current_temperature
+    if reading is None or zone.sensor_stale:
+        return None
+    reported = epoch_of(reading.time)
+    return None if reported is None else (reported, reading.value)
+
+
 def sample_values(zone):
     reading = zone.current_temperature
     shadow = fresh_shadow(zone.shadow)
@@ -99,6 +107,7 @@ class Sampler:
         self.clock = clock
         self.interval = interval
         self.history = None
+        self.last_reported = {}
         self.last_commit = 0
         self.last_prune = 0
         self.warned = set()
@@ -127,6 +136,7 @@ class Sampler:
 
     def release(self):
         history, self.history = self.history, None
+        self.last_reported = {}
         if history is None:
             return
         try:
@@ -137,11 +147,17 @@ class Sampler:
     def sample(self):
         now = self.clock()
         try:
-            rows = [(zone.name, sample_values(read_zone(self.redis, zone))) for zone in self.zones]
+            lives = [read_zone(self.redis, zone) for zone in self.zones]
         except RedisError as error:
             self.warn_once("redis", "history skipped a sample, redis failed: %s", error)
             return
         self.recovered("redis")
+        rows = [(live.name, sample_values(live)) for live in lives]
+        for live in lives:
+            report = report_of(live)
+            if report is not None and self.last_reported.get(live.name) != report[0]:
+                self.history.add_reading(live.name, *report)
+                self.last_reported[live.name] = report[0]
         pins = self.io.snapshot()
         entries = {entry["name"]: entry for entry in pins["zones"]}
         for name, values in rows:

@@ -330,3 +330,83 @@ def test_a_window_takes_the_latest_live_marker_and_gains(history):
   history.aggregate(NOW)
 
   assert rows(history, "SELECT live.gains FROM windows JOIN profiles AS live ON live.id = windows.live") == [(v2,)]
+
+
+def test_a_reading_is_stored_once_per_zone_and_time(history):
+  history.add_reading("Bedrooms", NOW, 19.5)
+  history.add_reading("Bedrooms", NOW, 19.7)
+  history.add_reading("Kitchen", NOW, 20.0)
+
+  assert rows(history, "SELECT zone, ts, value FROM readings ORDER BY zone") == [(1, NOW, 19.5), (2, NOW, 20.0)]
+
+
+def test_readings_are_pruned_with_the_windows(history):
+  history.add_reading("Bedrooms", NOW - WINDOW_RETENTION - 10, 19.0)
+  history.add_reading("Bedrooms", NOW - 10, 19.5)
+
+  history.prune(NOW)
+
+  assert rows(history, "SELECT ts FROM readings") == [(NOW - 10,)]
+
+
+V12_SCHEMA = V07_SCHEMA[:-1] + ("CREATE TABLE profiles (id INTEGER PRIMARY KEY, gains TEXT NOT NULL UNIQUE)",)
+V12_SCHEMA = tuple(
+  statement.replace("profile INTEGER,", "profile INTEGER, live INTEGER,") if statement.startswith("CREATE TABLE samples")
+  else statement.replace("profile INTEGER,", "profile INTEGER, live INTEGER,") if statement.startswith("CREATE TABLE windows")
+  else statement
+  for statement in V12_SCHEMA)
+
+
+@pytest.fixture
+def v12_database(tmp_path):
+  path = str(tmp_path / "v12.sqlite3")
+  connection = sqlite3.connect(path)
+  connection.execute("PRAGMA journal_mode=WAL")
+  for statement in V12_SCHEMA:
+    connection.execute(statement)
+  connection.execute("INSERT INTO zones (name) VALUES ('Bedrooms'), ('Kitchen')")
+  temps = [19.0, 19.0, 19.5, 19.5, None, 19.5, 19.0]
+  for index, temp in enumerate(temps):
+    connection.execute("INSERT INTO samples (zone, ts, temp, ctl) VALUES (1, ?, ?, 0.4)", (NOW - 100 + index * 10, temp))
+  connection.execute("INSERT INTO samples (zone, ts, temp) VALUES (2, ?, 21.0)", (NOW - 100,))
+  connection.execute("INSERT INTO samples (zone, ts, temp) VALUES (2, ?, 21.0)", (NOW - 90,))
+  connection.execute("INSERT INTO windows (zone, start, n, temp) VALUES (1, ?, 60, 19.0)", (NOW - 3 * WINDOW_SECONDS,))
+  connection.commit()
+  connection.close()
+  return path
+
+
+def test_a_0_12_database_gains_the_readings_table_backfilled_with_one_row_per_change(v12_database):
+  migrated = History(v12_database)
+
+  assert rows(migrated, "SELECT zone, ts, value FROM readings ORDER BY zone, ts") == [
+    (1, NOW - 100, 19.0), (1, NOW - 80, 19.5), (1, NOW - 50, 19.5), (1, NOW - 40, 19.0), (2, NOW - 100, 21.0)]
+  migrated.close()
+
+
+def test_a_0_12_database_keeps_every_existing_row(v12_database):
+  migrated = History(v12_database)
+
+  assert rows(migrated, "SELECT count(*) FROM samples") == [(9,)]
+  assert rows(migrated, "SELECT start, n, temp FROM windows") == [(NOW - 3 * WINDOW_SECONDS, 60, 19.0)]
+  assert rows(migrated, "SELECT name FROM zones ORDER BY id") == [("Bedrooms",), ("Kitchen",)]
+  migrated.close()
+
+
+def test_opening_a_0_12_database_twice_changes_nothing(v12_database):
+  History(v12_database).close()
+  first = sqlite3.connect(v12_database)
+  before = [first.execute(f"SELECT * FROM {table} ORDER BY 1, 2").fetchall() for table in ("samples", "windows", "readings")]
+  schema = first.execute("SELECT sql FROM sqlite_master ORDER BY name").fetchall()
+  first.close()
+
+  History(v12_database).close()
+
+  second = sqlite3.connect(v12_database)
+  assert [second.execute(f"SELECT * FROM {table} ORDER BY 1, 2").fetchall() for table in ("samples", "windows", "readings")] == before
+  assert second.execute("SELECT sql FROM sqlite_master ORDER BY name").fetchall() == schema
+  second.close()
+
+
+def test_a_new_database_has_an_empty_readings_table(history):
+  assert rows(history, "SELECT count(*) FROM readings") == [(0,)]

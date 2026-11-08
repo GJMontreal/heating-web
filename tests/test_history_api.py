@@ -486,3 +486,31 @@ def test_hours_still_defaults_to_24(client, history):
                                     {"hours": 1, "minutes": 30}])
 def test_out_of_range_or_doubled_history_ranges_are_rejected(client, params):
   assert client.get("/api/history", params=params).status_code == 422
+
+
+def test_history_returns_the_readings_in_the_range_and_the_last_one_before_it(client, history):
+  fill(history, NOW - 100, 3, ctl=0.4)
+  history.add_reading("Bedrooms", NOW - 7200, 18.5)
+  history.add_reading("Bedrooms", NOW - 4000, 19.0)
+  history.add_reading("Bedrooms", NOW - 3000, 19.25)
+  history.add_reading("Bedrooms", NOW - 50, 19.25)
+  history.commit()
+
+  zone = by_name(history_of(client, hours=1))["Bedrooms"]
+
+  assert zone["readings"] == {"t": [NOW - 4000, NOW - 3000, NOW - 50], "v": [19, 19.25, 19.25]}
+
+
+def test_a_zone_with_no_readings_has_empty_columns(client, history):
+  assert by_name(history_of(client, hours=1))["Stairwell"]["readings"] == {"t": [], "v": []}
+
+
+def test_a_database_without_the_readings_table_still_answers(client, history):
+  fill(history, NOW - 100, 3, ctl=0.4)
+  history.connection.execute("DROP TABLE readings")
+  history.commit()
+
+  zone = by_name(history_of(client, hours=1))["Bedrooms"]
+
+  assert zone["readings"] == {"t": [], "v": []}
+  assert zone["ctl"] == [0.4, 0.4, 0.4]

@@ -1,3 +1,4 @@
+from calendar import timegm
 from datetime import datetime, timezone
 from json import loads
 from typing import Optional
@@ -34,6 +35,13 @@ def age_of(sample_time):
     except (TypeError, ValueError):
         return None
     return max(0.0, (datetime.now(timezone.utc) - reported).total_seconds())
+
+
+def epoch_of(sample_time):
+    try:
+        return timegm(datetime.strptime(sample_time, TIME_FORMAT).timetuple())
+    except (TypeError, ValueError):
+        return None
 
 
 def read_json(redis, key):
