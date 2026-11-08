@@ -34,3 +34,4 @@ Moved from `boiler-relay/TODO.md`, step 3.
   - valve open minutes in the duty window
   - sensor battery and humidity
   - the electric relay's last command
+- [x] Show the electric relay's confirmed state on the Live page from the optional `confirmed` and `confirmed_time` fields. Check the field names against the parent contract when `boiler-relay` publishes them.

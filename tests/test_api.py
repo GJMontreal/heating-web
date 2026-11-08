@@ -153,3 +153,20 @@ def test_versions_still_answers_when_redis_is_down(redis_client):
   client = TestClient(create_app(ZONES, DownRedis(), OWN_VERSION))
 
   assert client.get("/api/versions").json() == [{"service": "heating-web", **OWN_VERSION}]
+
+
+def test_live_passes_the_relay_confirmation_through_unchanged(client, redis_client):
+  payload = {"control_value": 1.0, "state": 1, "confirmed": 1, "confirmed_time": "2026-11-08T10:00:03Z", "time": timestamp()}
+  redis_client.set("heating/active/zones/Bedrooms", json.dumps(payload))
+
+  active = client.get("/api/live").json()[0]["active"]
+
+  assert (active["confirmed"], active["confirmed_time"]) == (1, "2026-11-08T10:00:03Z")
+
+
+def test_live_without_the_confirmation_fields_carries_none(client, redis_client):
+  redis_client.set("heating/active/zones/Bedrooms", json.dumps({"control_value": 0.5, "state": 1, "time": timestamp()}))
+
+  active = client.get("/api/live").json()[0]["active"]
+
+  assert "confirmed" not in active and "confirmed_time" not in active

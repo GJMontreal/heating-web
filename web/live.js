@@ -4,12 +4,13 @@ import { el, meter, status } from "./dom.js";
 import { ageText, clock, temperature } from "./format.js";
 import { liveController } from "./controller.js";
 import { ioCard, relayRow } from "./hydronic_io.js";
+import { confirmationRows, hasConfirmation } from "./relay.js";
 
 const REFRESH_MS = 10000;
 const SHADOW_UNIT = "boiler_relay_v2_shadow";
 const SYSTEMS = {
   hydronic: ["Hydronic system", "Boiler, pump and zone valves on the BeagleBone GPIO."],
-  electric: ["Electric system", "Radiators on Zigbee relays, switched over MQTT. The relay state is never confirmed."],
+  electric: ["Electric system", "Radiators on Zigbee relays, switched over MQTT. The relay state is confirmed only when the control service publishes the relay's report."],
 };
 const UNIT_STATES = {
   active: ["good", "●", "Running"],
@@ -117,7 +118,7 @@ function zoneCard(zone) {
     el("dt", { text: "Boost" }), flag(zone.boost),
     el("dt", { text: `${liveController(services).label} control value` }), liveCell(zone),
     el("dt", { text: "Shadow decision" }), shadowCell(zone),
-    ...relayRow(io, zone.name),
+    ...(hasConfirmation(zone) ? confirmationRows(zone, io) : relayRow(io, zone.name)),
   ]);
   return el("div", { className: "card zone" }, [head, summary, details]);
 }

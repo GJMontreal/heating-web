@@ -188,3 +188,4 @@ svg .cross { stroke: var(--axis); stroke-width: 1; }
 .profile-history { margin: 0; padding-left: 18px; font-size: 13px; }
 .profile-history li { margin-bottom: 6px; }
 .warn-text { color: var(--ink); font-weight: 600; }
+.kv dd .status { margin-left: 8px; }
