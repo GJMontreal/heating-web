@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { JUMP_LIMIT, beziers, curveModel, hermiteAt, knotsOf, pieces, slopes } from "../../web/curve.js";
+import { INTERPOLATION, JUMP_LIMIT, beziers, curveModel, hermiteAt, knotsOf, pieces, readingKnots, slopes } from "../../web/curve.js";
 
 function generator(seed) {
   let state = seed;
@@ -164,4 +164,102 @@ test("a range with one change has two knots and a curve between them", () => {
 
 test("no data gives an empty model", () => {
   assert.deepEqual(curveModel([], 100, false), { curves: [], flats: [], holds: [], knots: [] });
+});
+
+test("pchip is the default interpolation", () => {
+  assert.equal(INTERPOLATION, "pchip");
+});
+
+test("the linear mode draws straight segments through the knots", () => {
+  const knots = [[0, 19], [3600, 19.3], [9000, 19.4]];
+
+  const segments = beziers(knots, "linear");
+
+  segments.forEach((segment, index) => {
+    const [x0, y0] = knots[index];
+    const [x1, y1] = knots[index + 1];
+    const slope = (y1 - y0) / (x1 - x0);
+    assert.ok(Math.abs(segment[1] - (y0 + slope * (segment[0] - x0))) < 1e-9);
+    assert.ok(Math.abs(segment[3] - (y1 - slope * (x1 - segment[2]))) < 1e-9);
+    assert.deepEqual([segment[4], segment[5]], [x1, y1]);
+  });
+});
+
+test("the default mode matches pchip and differs from linear on uneven data", () => {
+  const knots = [[0, 19], [3600, 19], [7200, 20], [7300, 20.1]];
+
+  assert.deepEqual(beziers(knots), beziers(knots, "pchip"));
+  assert.notDeepEqual(beziers(knots), beziers(knots, "linear"));
+});
+
+test("reading knots hold the last reading before the run as the anchor", () => {
+  const readings = [[-3000, 18.9], [-100, 19], [500, 19.2], [900, 19.2], [2000, 19.5]];
+
+  assert.deepEqual(readingKnots(readings, 0, 1000), [[-100, 19], [500, 19.2], [900, 19.2]]);
+});
+
+test("a reading older than the hold limit is not an anchor", () => {
+  assert.deepEqual(readingKnots([[-8000, 18.9], [500, 19]], 0, 1000), [[500, 19]]);
+});
+
+test("a reading with an unchanged value is a knot and the curve holds flat through it", () => {
+  const run = [[0, 19], [100, 19], [200, 19], [300, 19]];
+  const readings = [[-50, 19], [100, 19], [250, 19]];
+
+  const model = curveModel([run], 400, true, readings, 10);
+
+  assert.deepEqual(model.knots, [[-50, 19], [100, 19], [250, 19]]);
+  assert.equal(model.curves.length, 1);
+  for (const segment of model.curves[0].beziers) assert.ok(segment.filter((_, index) => index % 2 === 1).every((y) => y === 19));
+  assert.deepEqual(model.holds, [{ from: 250, to: 400, value: 19 }]);
+});
+
+test("a bucket that averages two readings adds no knot", () => {
+  const run = [[0, 23.12], [22, 23.12], [44, 22.87], [66, 22.61], [88, 22.61]];
+  const readings = [[-600, 23.12], [50, 22.61]];
+
+  const model = curveModel([run], 100, true, readings, 22);
+
+  assert.deepEqual(model.knots, [[-600, 23.12], [50, 22.61]]);
+  assert.ok(!model.knots.some((knot) => Math.abs(knot[1] - 22.87) < 1e-9));
+});
+
+test("a run with no readings falls back to the knots found from value changes", () => {
+  const run = [[0, 19], [10, 19], [20, 19.2]];
+
+  const model = curveModel([run], 40, true, [], 10);
+
+  assert.deepEqual(model.knots, [[0, 19], [20, 19.2]]);
+});
+
+test("readings only belong to the run they fall in", () => {
+  const first = [[0, 19], [100, 19]];
+  const second = [[5000, 20], [5100, 20]];
+  const readings = [[-10, 19], [4990, 20], [5050, 20.1]];
+
+  const model = curveModel([first, second], 5200, true, readings, 10);
+
+  assert.equal(model.curves.length, 1);
+  assert.deepEqual(model.curves[0].knots, [[4990, 20], [5050, 20.1]]);
+  assert.deepEqual(model.knots.map((knot) => knot[0]), [-10, 4990, 5050]);
+});
+
+test("a jump between two readings still breaks the curve", () => {
+  const run = [[0, 12], [100, 23.7]];
+  const readings = [[-10, 12], [90, 23.7], [95, 23.8]];
+
+  const model = curveModel([run], 200, true, readings, 10);
+
+  assert.deepEqual(model.curves.map((curve) => curve.knots.map((knot) => knot[1])), [[23.7, 23.8]]);
+});
+
+test("the knots of the model are sorted and unique", () => {
+  const first = [[0, 19], [100, 19]];
+  const second = [[300, 19], [400, 19]];
+  const readings = [[90, 19], [350, 19]];
+
+  const model = curveModel([first, second], 500, true, readings, 10);
+
+  const times = model.knots.map((knot) => knot[0]);
+  assert.deepEqual(times, [...new Set(times)].sort((a, b) => a - b));
 });

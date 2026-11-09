@@ -1,4 +1,6 @@
 export const JUMP_LIMIT = 1;
+export const INTERPOLATION = "pchip";
+const HOLD_LIMIT = 7200;
 const SAME = 0.005;
 
 export function knotsOf(run) {
@@ -7,6 +9,17 @@ export function knotsOf(run) {
     const last = knots[knots.length - 1];
     if (last === undefined || Math.abs(value - last[1]) >= SAME) knots.push([time, value]);
   }
+  return knots;
+}
+
+export function readingKnots(readings, from, to) {
+  const knots = [];
+  let anchor = null;
+  for (const reading of readings) {
+    if (reading[0] <= from) anchor = reading;
+    else if (reading[0] <= to) knots.push(reading);
+  }
+  if (anchor !== null && from - anchor[0] <= HOLD_LIMIT) knots.unshift(anchor);
   return knots;
 }
 
@@ -72,24 +85,28 @@ export function hermiteAt(knots, d, time) {
     + (-2 * t3 + 3 * t2) * y1 + (t3 - t2) * h * d[index + 1];
 }
 
-export function beziers(knots) {
+export function beziers(knots, mode = INTERPOLATION) {
   const d = slopes(knots);
   const result = [];
   for (let index = 0; index < knots.length - 1; index += 1) {
     const [x0, y0] = knots[index];
     const [x1, y1] = knots[index + 1];
     const third = (x1 - x0) / 3;
-    result.push([x0 + third, y0 + d[index] * third, x1 - third, y1 - d[index + 1] * third, x1, y1]);
+    const secant = (y1 - y0) / (x1 - x0);
+    const start = mode === "linear" ? secant : d[index];
+    const finish = mode === "linear" ? secant : d[index + 1];
+    result.push([x0 + third, y0 + start * third, x1 - third, y1 - finish * third, x1, y1]);
   }
   return result;
 }
 
-export function curveModel(runs, edge, reachesEnd) {
+export function curveModel(runs, edge, reachesEnd, readings = [], slack = 0, mode = INTERPOLATION) {
   const model = { curves: [], flats: [], holds: [], knots: [] };
   runs.forEach((run, index) => {
-    const knots = knotsOf(run);
     const runEnd = run[run.length - 1][0];
     const final = reachesEnd && index === runs.length - 1;
+    const reported = readingKnots(readings, run[0][0], final ? Infinity : runEnd + slack);
+    const knots = reported.length > 0 ? reported : knotsOf(run);
     const stop = final ? edge : runEnd;
     model.knots.push(...knots);
     if (knots.length < 2) {
@@ -99,10 +116,12 @@ export function curveModel(runs, edge, reachesEnd) {
     }
     const parts = pieces(knots);
     parts.forEach((part, position) => {
-      if (part.length > 1) model.curves.push({ knots: part, beziers: beziers(part) });
+      if (part.length > 1) model.curves.push({ knots: part, beziers: beziers(part, mode) });
       const last = part[part.length - 1];
       if (position === parts.length - 1 && stop > last[0]) model.holds.push({ from: last[0], to: stop, value: last[1] });
     });
   });
+  model.knots.sort((a, b) => a[0] - b[0]);
+  model.knots = model.knots.filter((knot, index) => index === 0 || knot[0] !== model.knots[index - 1][0]);
   return model;
 }

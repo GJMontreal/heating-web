@@ -11,6 +11,7 @@ const RAW_INTERVAL = 10;
 const GAP_FACTOR = 3;
 const TICK_STEPS = [300, 600, 1800, 3600, 3 * 3600, 6 * 3600, 12 * 3600, 86400, 2 * 86400];
 const MAX_TICKS = 7;
+let clips = 0;
 
 export function niceTicks(min, max, count) {
   const span = max - min;
@@ -127,8 +128,16 @@ function nearestKnot(knots, time) {
   return knots.length === 0 ? null : knots[nearest(knots.map((knot) => knot[0]), time)];
 }
 
-function smoothNodes(entry, x, y) {
-  const stroke = { fill: "none", stroke: entry.color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" };
+export function temperatureModel({ times, values, bucket, readings, end }) {
+  const runs = segments(times, values, bucket);
+  const reachesEnd = runs.length > 0 && runs[runs.length - 1][runs[runs.length - 1].length - 1][0] === times[times.length - 1];
+  const pairs = readings.t.map((time, index) => [time, readings.v[index]]);
+  return curveModel(runs, end, reachesEnd, pairs, Math.max(bucket, RAW_INTERVAL));
+}
+
+function smoothNodes(entry, x, y, options = {}) {
+  const width = options.width || 2;
+  const stroke = { fill: "none", stroke: entry.color, "stroke-width": width, "stroke-linejoin": "round", "stroke-linecap": "round" };
   const nodes = [];
   for (const flat of entry.model.flats) {
     nodes.push(svg("path", { d: `M${x(flat.from)} ${y(flat.value)} H${x(flat.to)}`, ...stroke }));
@@ -141,6 +150,7 @@ function smoothNodes(entry, x, y) {
   for (const hold of entry.model.holds) {
     nodes.push(svg("path", { d: `M${x(hold.from)} ${y(hold.value)} H${x(hold.to)}`, ...stroke, "stroke-dasharray": "4 4" }));
   }
+  if (options.markers === false) return nodes;
   for (const [time, value] of entry.model.knots) {
     nodes.push(svg("circle", { cx: x(time), cy: y(value), r: 2.5, fill: entry.color, stroke: "var(--surface)", "stroke-width": 1 }));
   }
@@ -167,10 +177,11 @@ export function lineChart(box, options) {
   }
   for (const entry of series) {
     if (entry.smooth) {
-      const runs = segments(times, entry.values, bucket);
-      const reachesEnd = runs.length > 0 && runs[runs.length - 1][runs[runs.length - 1].length - 1][0] === times[times.length - 1];
-      entry.model = curveModel(runs, end, reachesEnd);
-      nodes.push(...smoothNodes(entry, x, y));
+      clips += 1;
+      const clip = `plot-clip-${clips}`;
+      const area = svg("rect", { x: LEFT, y: TOP, width: WIDTH - LEFT - RIGHT, height: height - TOP - BOTTOM });
+      nodes.push(svg("clipPath", { id: clip }, [area]));
+      nodes.push(svg("g", { "clip-path": `url(#${clip})` }, smoothNodes(entry, x, y)));
       continue;
     }
     for (const run of segments(times, entry.values, bucket)) {
@@ -205,7 +216,7 @@ export function lineChart(box, options) {
     series.forEach((entry, position) => {
       const knot = reports[position];
       const value = entry.smooth ? (knot === null ? null : knot[1]) : entry.values[index];
-      if (value === null || value === undefined) {
+      if (value === null || value === undefined || (entry.smooth && knot[0] < start)) {
         dots[position].setAttribute("display", "none");
         return;
       }
@@ -288,22 +299,19 @@ export function stateStrips(box, options) {
   });
 }
 
-export function sparkline(values, times, bucket, start, end, color) {
+export function sparkline(model, start, end, color) {
   const width = 160;
   const height = 36;
-  const present = values.filter((value) => value !== null && value !== undefined);
-  if (present.length === 0) return null;
+  if (model.knots.length === 0) return null;
+  const present = model.knots.map((knot) => knot[1]);
   const low = Math.min(...present);
   const high = Math.max(...present);
   const x = (time) => 2 + ((time - start) / Math.max(1, end - start)) * (width - 8);
   const y = (value) => height - 6 - ((value - low) / (high - low || 1)) * (height - 12);
-  const nodes = [];
-  for (const run of segments(times, values, bucket)) {
-    if (run.length > 1) nodes.push(svg("path", { d: pathOf(run, x, y, false), fill: "none", stroke: color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
-  }
-  const last = present.length - 1;
-  const lastTime = times[values.lastIndexOf(present[last])];
-  nodes.push(svg("circle", { cx: x(lastTime), cy: y(present[last]), r: 4, fill: color, stroke: "var(--surface)", "stroke-width": 2 }));
+  const nodes = smoothNodes({ model, color }, x, y, { markers: false });
+  const last = model.knots[model.knots.length - 1];
+  const lastTime = Math.max(last[0], ...model.holds.map((hold) => hold.to), ...model.flats.map((flat) => flat.to));
+  nodes.push(svg("circle", { cx: x(lastTime), cy: y(last[1]), r: 4, fill: color, stroke: "var(--surface)", "stroke-width": 2 }));
   return svg("svg", { viewBox: `0 0 ${width} ${height}`, class: "spark", "aria-hidden": "true" }, nodes);
 }
 

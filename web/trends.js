@@ -1,6 +1,6 @@
 import { get } from "./api.js";
 import { report } from "./alert.js";
-import { legend, lineChart, sparkline, stateStrips } from "./chart.js";
+import { legend, lineChart, sparkline, stateStrips, temperatureModel } from "./chart.js";
 import { liveController } from "./controller.js";
 import { el } from "./dom.js";
 import { clock, temperature } from "./format.js";
@@ -61,7 +61,7 @@ function reportText(value, time) {
 
 function sparkCard(zone) {
   const latest = lastValue(zone.temp);
-  const picture = sparkline(zone.temp, zone.t, data.bucket_seconds, data.start, data.end, BLUE)
+  const picture = sparkline(zone.model, data.start, data.end, BLUE)
     || el("div", { className: "muted spark-empty", text: "No readings in range" });
   const head = el("div", { className: "row" }, [
     el("b", { text: zone.name }),
@@ -80,7 +80,11 @@ function expand(history) {
   const blank = () => history.t.map(() => null);
   for (const zone of history.zones) {
     zone.t = history.t;
+    zone.readings = zone.readings || { t: [], v: [] };
     for (const name of SERIES) if (zone[name].length === 0) zone[name] = blank();
+  }
+  for (const zone of history.zones) {
+    zone.model = temperatureModel({ times: history.t, values: zone.temp, bucket: history.bucket_seconds, readings: zone.readings, end: history.end });
   }
   if (history.boiler.on.length === 0) history.boiler.on = blank();
   return history;
@@ -112,7 +116,7 @@ function temperatureCard(zone) {
     box,
   ]);
   return { card, draw: () => {
-    const present = zone.temp.concat(zone.target).filter((value) => value !== null);
+    const present = zone.temp.concat(zone.target, zone.model.knots.filter((knot) => knot[0] >= data.start).map((knot) => knot[1])).filter((value) => value !== null);
     if (present.length === 0) {
       box.replaceChildren(el("div", { className: "empty", text: "No temperature readings in this range." }));
       return;
@@ -121,7 +125,7 @@ function temperatureCard(zone) {
       label: `${zone.name} temperature and target`, times: zone.t, bucket: data.bucket_seconds, start: data.start, end: data.end,
       yMin: Math.floor(Math.min(...present) - 0.5), yMax: Math.ceil(Math.max(...present) + 0.5),
       series: [
-        { name: "Temperature", color: BLUE, values: zone.temp, fmt: tempText, smooth: true, fmtKnot: reportText },
+        { name: "Temperature", color: BLUE, values: zone.temp, fmt: tempText, smooth: true, model: zone.model, fmtKnot: reportText },
         { name: "Target", color: GRAY, values: zone.target, step: true, fmt: tempText },
       ],
     });
